@@ -76,7 +76,7 @@
   .radar span{animation:radar-sweep 7.5s linear infinite}
   .radar:before,.radar:after{animation:cross-glow 2.4s ease-in-out infinite alternate}
 }
-@keyframes tape-scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@keyframes tape-scroll{from{transform:translate3d(0,0,0)}to{transform:translate3d(var(--tape-shift,-50%),0,0)}}
 @keyframes radar-drift{from{transform:rotate(8deg)}to{transform:rotate(20deg)}}
 @keyframes radar-sweep{to{transform:rotate(1turn)}}
 @keyframes cross-glow{from{opacity:.28}to{opacity:1}}

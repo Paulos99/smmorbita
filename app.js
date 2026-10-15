@@ -7,6 +7,42 @@ const node = (tag, className, text) => {
 };
 let lessons = [], current = 0, epoch = 0, pdfModule;
 const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+function armTape() {
+  const tape = document.querySelector('.tape');
+  const track = tape?.querySelector('.tape-track');
+  const seed = track?.querySelector('.tape-group');
+  if (!tape || !track || !seed || reduceMotion) return;
+  const motif = [...seed.children].map(node => node.cloneNode(true));
+  if (!motif.length) return;
+  const fit = () => {
+    const view = tape.clientWidth;
+    if (view < 20) return;
+    const current = track.dataset.filled === '1' ? track.firstElementChild?.getBoundingClientRect().width || 0 : 0;
+    if (current >= view + 8) return;
+    const group = document.createElement('div');
+    group.className = 'tape-group';
+    track.replaceChildren(group);
+    let guard = 0;
+    do {
+      for (const node of motif) group.append(node.cloneNode(true));
+      guard += 1;
+    } while (group.getBoundingClientRect().width < view + 48 && guard < 12);
+    const copy = group.cloneNode(true);
+    copy.setAttribute('aria-hidden', 'true');
+    track.append(copy);
+    const shift = group.getBoundingClientRect().width;
+    track.style.setProperty('--tape-shift', `-${shift}px`);
+    track.style.animationDuration = `${Math.max(shift / 40, 12)}s`;
+    track.dataset.filled = '1';
+  };
+  const start = () => {
+    fit();
+    if (typeof ResizeObserver === 'function') new ResizeObserver(fit).observe(tape);
+  };
+  if (document.fonts?.ready) document.fonts.ready.then(start).catch(start);
+  else start();
+}
+armTape();
 let revealObserver = null;
 if (!reduceMotion && typeof IntersectionObserver === 'function') {
   revealObserver = new IntersectionObserver(entries => {
