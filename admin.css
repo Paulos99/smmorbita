@@ -57,7 +57,8 @@ h1{font:800 34px/1.25 var(--heading);letter-spacing:-1px;margin:8px 0 0}
 .hint{color:#9d9d94;font-size:13px;margin:0 0 14px}
 label.field{display:block;margin:0 0 14px}
 label.field span,fieldset legend{display:block;font-size:11px;letter-spacing:1.1px;color:#c8c8be;margin-bottom:7px;font-weight:650}
-input[type=text],input[type=search],textarea{width:100%;background:#121212;border:1px solid #4a4a4a;border-radius:10px;padding:12px 12px;font-size:16px}
+input[type=text],input[type=search],input[type=url],textarea{width:100%;background:#121212;border:1px solid #4a4a4a;border-radius:10px;padding:12px 12px;font-size:16px}
+.file-row input[type=url]{flex:1;min-width:0;min-height:44px}
 textarea{min-height:84px;resize:vertical}
 .choices{display:grid;grid-template-columns:1fr 1fr;gap:8px;border:0;margin:0 0 12px;padding:0}
 .choice{border:1px solid #4a4a4a;border-radius:12px;padding:12px;display:flex;gap:10px;align-items:flex-start;background:#161616}

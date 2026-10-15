@@ -5,7 +5,8 @@ const node = (tag, className, text) => {
   const e = document.createElement(tag); if (className) e.className = className;
   if (text != null) e.textContent = text; return e;
 };
-let lessons = [], current = 0, epoch = 0, pdfModule;
+let lessons = [], current = 0, epoch = 0, pdfModule, catalogExpireAt = 0;
+const mediaTimers = [];
 const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 function armTape() {
   const tape = document.querySelector('.tape');
@@ -178,7 +179,7 @@ function viewerDownload(resource) {
   return link;
 }
 function syncScrollLock() {
-  document.body.classList.toggle('no-scroll', Boolean(document.querySelector('dialog[open], .pdf-viewer.is-stage-full')));
+  document.body.classList.toggle('no-scroll', Boolean(document.querySelector('dialog[open], .is-stage-full')));
 }
 const originalFetch = window.fetch.bind(window);
 window.fetch = async (input, init = {}) => { let url=String(input); if (url.startsWith('/api/')) { url=API+url; const h=new Headers(init.headers||{}); h.set('X-School-Token',getToken()); try{const r=localStorage.getItem('smm-role');if(r)h.set('X-School-Role',r);}catch{} init={...init,headers:h,credentials:'omit'}; } const response = await originalFetch(url, init); if (response.status === 401 && url.startsWith(API)) { clearToken(); location.replace('./login.html'); } return response; };
@@ -196,7 +197,7 @@ if (menuToggle) {
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
     if (header.classList.contains('is-menu-open')) { setMenu(false); menuToggle.focus(); return; }
-    const full = document.querySelector('.pdf-viewer.is-stage-full');
+    const full = document.querySelector('.is-stage-full');
     if (!full || full.closest('dialog[open]')) return;
     event.preventDefault();
     toggleStageFull(full);
@@ -272,13 +273,14 @@ async function selectLesson(index, scroll = false) {
   if (index < 0 || index >= lessons.length) return;
   const motionSwap = epoch > 0;
   current = index; const version = ++epoch, lesson = lessons[index];
+  for (const timer of mediaTimers.splice(0)) clearTimeout(timer);
   for (const viewer of inlineViewers.splice(0)) viewer.destroy();
   for (const id of ['presentation-view', 'lecture-view', 'materials-view', 'workbook-view']) releaseReveals(document.getElementById(id));
   for (const [i, button] of [...$('#lesson-tabs').children].entries()) { button.setAttribute('aria-selected', String(i === index)); button.tabIndex = i === index ? 0 : -1; }
   $('#lesson').setAttribute('aria-labelledby', `tab-${lesson.id}`);
   $('#lesson-code').textContent = `УЧЕБНАЯ МИССИЯ / ${lesson.number.padStart(3, '0')}`;
   $('#lesson-title').textContent = lesson.title; $('#lesson-description').textContent = lesson.description || '';
-  const files = [lesson.presentation, lesson.lecture, ...(lesson.materials || []), lesson.workbook].filter(Boolean);
+  const files = [lesson.presentation, lesson.lecture, ...(lesson.videos || []), ...(lesson.pages || []), ...(lesson.materials || []), lesson.workbook].filter(Boolean);
   const hasMaterials = files.length > 0;
   $('#lesson-state').textContent = hasMaterials ? `${files.length} ${fileWord(files.length)} в досье` : 'Материалы готовятся';
   $('#lesson-state').classList.toggle('ready', hasMaterials);
@@ -287,7 +289,8 @@ async function selectLesson(index, scroll = false) {
   $('#lecture-view').replaceChildren(lecturePlaceholder());
   $('#materials-view').replaceChildren(materialsPlaceholder());
   $('#workbook-view').replaceChildren(workbookPlaceholder());
-  $('#material-count').textContent = `${lesson.materials?.length || 0} ${fileWord(lesson.materials?.length || 0).toUpperCase()}`;
+  const shown = (lesson.materials?.length || 0) + (lesson.videos?.length || 0) + (lesson.pages?.length || 0);
+  $('#material-count').textContent = `${shown} ${fileWord(shown).toUpperCase()}`;
   if (lesson.presentation) {
     $('#presentation-view').replaceChildren();
     await mountPreview($('#presentation-view'), lesson.presentation, inlineViewers, () => epoch === version);
@@ -299,7 +302,7 @@ async function selectLesson(index, scroll = false) {
     else await mountPreview($('#lecture-view'), lesson.lecture, inlineViewers, () => epoch === version);
   }
   if (epoch !== version) return;
-  if (lesson.materials?.length) $('#materials-view').replaceChildren(fileList(lesson.materials));
+  if (lesson.videos?.length || lesson.pages?.length || lesson.materials?.length) $('#materials-view').replaceChildren(lessonMedia(lesson));
   if (lesson.workbook) {
     $('#workbook-view').replaceChildren(fileList([lesson.workbook]));
     if (lesson.workbook.checks?.length) renderChecks($('#workbook-view'), lesson.workbook.checks, lesson.id);
@@ -314,6 +317,140 @@ async function selectLesson(index, scroll = false) {
   if (scroll) $('#lesson').scrollIntoView({behavior: 'smooth'});
 }
 function fileWord(n) { return n % 10 === 1 && n % 100 !== 11 ? 'файл' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'файла' : 'файлов'; }
+function lessonMedia(lesson) {
+  const wrap = node('div');
+  if (lesson.videos?.length) {
+    wrap.append(node('h4', 'media-kicker', 'Видео'));
+    const list = node('div', 'media-list');
+    for (const video of lesson.videos) list.append(video.kind === 'embed' ? renderEmbed(video) : renderVideo(video, lesson.id));
+    wrap.append(list);
+  }
+  if (lesson.pages?.length) {
+    wrap.append(node('h4', 'media-kicker', 'Страницы'));
+    const list = node('div', 'media-list');
+    for (const page of lesson.pages) list.append(renderHtmlPage(page, lesson.id));
+    wrap.append(list);
+  }
+  if (lesson.materials?.length) wrap.append(fileList(lesson.materials));
+  return wrap;
+}
+const EMBED_HOSTS = new Set(['www.youtube-nocookie.com', 'vk.com', 'rutube.ru']);
+function safeEmbed(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && EMBED_HOSTS.has(url.hostname) ? url.href : null;
+  } catch { return null; }
+}
+async function refreshMedia(resource, lessonId, attachment) {
+  if (!resource?.key || !lessonId) return null;
+  const response = await fetch('/api/media-url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lessonId, key: resource.key, attachment: Boolean(attachment) }) });
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => ({}));
+  if (data.expiresIn) catalogExpireAt = Date.now() + Number(data.expiresIn) * 1000;
+  return safeUrl(data.url);
+}
+function bindFreshLink(anchor, resource, lessonId, attachment) {
+  anchor.addEventListener('click', async event => {
+    if (Date.now() < catalogExpireAt - 60000) return;
+    event.preventDefault();
+    const url = await refreshMedia(resource, lessonId, attachment);
+    if (!url) return;
+    anchor.href = url;
+    if (anchor.target === '_blank') window.open(url, '_blank', 'noopener,noreferrer');
+    else location.assign(url);
+  });
+}
+function mediaActions(stage, resource, lessonId) {
+  const bar = node('div', 'media-actions');
+  const full = stageFullButton();
+  full.addEventListener('click', () => toggleStageFull(stage));
+  const open = node('a', 'button small', 'Открыть в новой вкладке');
+  open.target = '_blank'; open.rel = 'noopener noreferrer';
+  const view = safeUrl(resource.url);
+  if (view) open.href = view; else open.setAttribute('aria-disabled', 'true');
+  const download = node('a', 'button small', '↓ Скачать');
+  downloadLink(download, resource);
+  bindFreshLink(open, resource, lessonId, false);
+  bindFreshLink(download, resource, lessonId, true);
+  bar.append(full, open, download);
+  return bar;
+}
+function renderHtmlPage(resource, lessonId) {
+  const card = node('article', 'media-card');
+  card.append(node('h4', '', resource.title || 'Страница урока'));
+  const stage = node('div', 'media-stage');
+  const frame = node('iframe', 'lesson-html');
+  // allow-scripts only: the page must not become same-origin and read the school token.
+  frame.setAttribute('sandbox', 'allow-scripts');
+  frame.setAttribute('referrerpolicy', 'no-referrer');
+  frame.title = resource.title || 'Страница урока';
+  frame.loading = 'lazy';
+  const src = safeUrl(resource.url);
+  if (src) frame.src = src;
+  frame.addEventListener('load', () => { frame.dataset.loaded = '1'; });
+  const timer = setTimeout(async () => {
+    if (!frame.isConnected || frame.dataset.loaded === '1') return;
+    const url = await refreshMedia(resource, lessonId, false);
+    if (url && frame.isConnected && frame.dataset.loaded !== '1') frame.src = url;
+  }, Math.max(20000, catalogExpireAt - Date.now() - 90000));
+  mediaTimers.push(timer);
+  stage.append(frame, mediaActions(stage, resource, lessonId));
+  card.append(stage);
+  return card;
+}
+function renderVideo(resource, lessonId) {
+  const card = node('article', 'media-card');
+  card.append(node('h4', '', resource.title || 'Видео урока'));
+  const stage = node('div', 'media-stage');
+  const video = node('video');
+  video.controls = true; video.playsInline = true; video.preload = 'metadata';
+  video.setAttribute('playsinline', ''); video.setAttribute('preload', 'metadata');
+  const poster = safeUrl(resource.poster); if (poster) video.poster = poster;
+  const src = safeUrl(resource.url); if (src) video.src = src;
+  let refreshing = false, attempts = 0;
+  const swap = async () => {
+    if (refreshing || attempts > 2 || !video.isConnected) return;
+    refreshing = true; attempts += 1;
+    const time = video.currentTime || 0;
+    const playing = !video.paused && !video.ended;
+    const url = await refreshMedia(resource, lessonId, false);
+    refreshing = false;
+    if (!url || !video.isConnected) return;
+    video.src = url;
+    const resume = () => {
+      if (time > 0 && Math.abs((video.currentTime || 0) - time) > 0.5) { try { video.currentTime = time; } catch {} }
+      if (playing) video.play().catch(() => {});
+    };
+    video.addEventListener('loadedmetadata', resume, { once: true });
+    video.addEventListener('playing', () => { attempts = 0; }, { once: true });
+  };
+  const arm = () => {
+    const timer = setTimeout(swap, Math.max(20000, catalogExpireAt - Date.now() - 90000));
+    mediaTimers.push(timer);
+  };
+  arm();
+  video.addEventListener('error', () => { if ((video.currentTime || 0) > 0) swap(); });
+  stage.append(video, mediaActions(stage, resource, lessonId));
+  card.append(stage);
+  return card;
+}
+function renderEmbed(resource) {
+  const card = node('article', 'media-card');
+  card.append(node('h4', '', resource.title || 'Видео'));
+  const stage = node('div', 'media-stage');
+  const src = safeEmbed(resource.embedUrl);
+  if (!src) { stage.append(node('p', 'media-note', 'Ссылка на видео не открывается.')); card.append(stage); return card; }
+  const frame = node('iframe');
+  frame.src = src; frame.title = resource.title || 'Видео';
+  frame.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen');
+  frame.allowFullscreen = true; frame.loading = 'lazy'; frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+  const bar = node('div', 'media-actions');
+  const full = stageFullButton();
+  full.addEventListener('click', () => toggleStageFull(stage));
+  const open = node('a', 'button small', 'Открыть на сайте'); open.href = src; open.target = '_blank'; open.rel = 'noopener noreferrer';
+  bar.append(full, open); stage.append(frame, bar); card.append(stage);
+  return card;
+}
 function fileList(resources) {
   const list = node('div', 'file-list');
   for (const resource of resources) {
@@ -555,6 +692,7 @@ try {
   const identity=await apiRetry('/api/session');if(!identity.ok)throw new Error('session HTTP '+identity.status);const account=(await identity.json()).user;const role=account.role==='teacher'?'Преподаватель':'Ученик';$('#account-name').textContent=account.name===role?role:`${account.name} · ${role}`;if(account.role==='teacher'){const cab=document.createElement('a');cab.className='help-button';cab.href='./admin.html';cab.textContent='Кабинет';$('#account-name').after(cab);}if(Array.isArray(account.roles)){const label=r=>r==='teacher'?'Преподаватель':r==='student'?'Ученик':r;const sel=document.createElement('select');sel.id='role-switch';sel.setAttribute('aria-label','Роль');sel.className='role-switch';for(const r of account.roles){const o=document.createElement('option');o.value=r;o.textContent='Роль: '+label(r);o.selected=r===account.role;sel.append(o);}sel.addEventListener('change',async()=>{const res=await fetch('/api/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sel.value})});if(res.ok){try{localStorage.setItem('smm-role',sel.value);}catch{}location.reload();}});$('#account-name').after(sel);}
   const response = await apiRetry('/api/lessons'); if (!response.ok) throw new Error('lessons HTTP '+response.status);
   const data = await response.json(); lessons = data.lessons;
+  catalogExpireAt = Date.now() + (Number(data.expiresIn) || 3600) * 1000;
   if(data.shared?.length){$('#shared-files').replaceChildren(fileList(data.shared));armReveals($('#shared-files'));}
   const useful=[
     ['Онлайн-подпись','Подписать документы удалённо','https://onedocs.ru/'],
@@ -578,4 +716,4 @@ try {
   const index = lessons.findIndex(l => l.id === chosen); await selectLesson(index < 0 ? 0 : index);
 } catch (e) { console.error('Catalog load failed:', e); if (!getToken()) { location.replace('./login.html'); } else { const box=node('div', 'loading-error', 'Не удалось загрузить каталог уроков. Проверьте соединение и попробуйте ещё раз. '); const again=node('button','button small','Повторить'); again.addEventListener('click',()=>location.reload()); box.append(again); $('#lesson').replaceChildren(box); } }
 
-const __loaded=Date.now();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&Date.now()-__loaded>50*60000)location.reload();});
+const __loaded=Date.now();document.addEventListener('visibilitychange',()=>{if(document.visibilityState!=='visible'||Date.now()-__loaded<=50*60000)return;if([...document.querySelectorAll('video')].some(video=>!video.paused&&!video.ended))return;location.reload();});

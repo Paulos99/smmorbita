@@ -1,6 +1,7 @@
 import { API, getToken, clearToken } from './auth.js';
 import { docxToSections, linesFromSections } from './docx.js';
 import { pdfToWebpBlobs, textToWebpBlobs } from './previews.js';
+import { packLessonHtml } from './htmlpack.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const node = (tag, className, text) => { const el = document.createElement(tag); if (className) el.className = className; if (text != null) el.textContent = text; return el; };
@@ -35,10 +36,13 @@ async function api(path, { method = 'GET', body } = {}) {
   if (!response.ok) throw Object.assign(new Error(data.error || 'Не удалось выполнить запрос. Попробуйте ещё раз.'), { status: response.status });
   return data;
 }
+const PART_SIZE = 16 * 1024 * 1024;
+const MULTIPART_FROM = 32 * 1024 * 1024;
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} Б`;
   if (bytes < 1048576) return `${Math.max(1, Math.round(bytes / 1024))} КБ`;
-  return `${(bytes / 1048576).toFixed(1).replace('.', ',')} МБ`;
+  if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1).replace('.', ',')} МБ`;
+  return `${(bytes / 1073741824).toFixed(1).replace('.', ',')} ГБ`;
 }
 function extOf(name) { return (String(name).split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
 function putFile(ticket, blob, onProgress) {
@@ -57,9 +61,85 @@ function putFile(ticket, blob, onProgress) {
   });
 }
 async function upload(lessonId, slot, blob, name, extra, onProgress) {
+  if (slot === 'video' && blob.size >= MULTIPART_FROM) return uploadMultipart(lessonId, blob, name, extra, onProgress);
   const ticket = await api('/api/admin/upload-url', { method: 'POST', body: { lessonId, slot, ext: extOf(name), size: blob.size, ...extra } });
   await putFile(ticket, blob, onProgress);
   return ticket;
+}
+function putPart(url, blob, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.upload.onprogress = event => { if (event.lengthComputable) onProgress?.(event.loaded, event.total); };
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) { reject(new Error('Часть видео не загрузилась. Проверьте интернет и сохраните ещё раз.')); return; }
+      const etag = xhr.getResponseHeader('ETag');
+      if (!etag) reject(new Error('Хранилище не подтвердило часть файла. В CORS бакета должен быть открыт заголовок ETag.'));
+      else resolve(etag);
+    };
+    xhr.onerror = () => reject(new Error('Нет связи с хранилищем. Проверьте интернет и повторите.'));
+    xhr.send(blob);
+  });
+}
+async function uploadMultipart(lessonId, blob, name, extra, onProgress) {
+  const storeKey = `smm-video:${lessonId}:${extra.index || 0}:${blob.size}:${blob.lastModified || 0}:${blob.name}`;
+  let hadResume = false;
+  try { hadResume = Boolean(JSON.parse(sessionStorage.getItem(storeKey) || 'null')?.uploadId); } catch {}
+  try { return await sendMultipart(storeKey, lessonId, blob, name, extra, onProgress); }
+  catch (error) {
+    if (!hadResume) throw error;
+    try {
+      const old = JSON.parse(sessionStorage.getItem(storeKey) || 'null');
+      if (old?.uploadId && old?.key) await api('/api/admin/upload-multipart/abort', { method: 'POST', body: { key: old.key, uploadId: old.uploadId } });
+    } catch {}
+    try { sessionStorage.removeItem(storeKey); } catch {}
+    return sendMultipart(storeKey, lessonId, blob, name, extra, onProgress);
+  }
+}
+async function sendMultipart(storeKey, lessonId, blob, name, extra, onProgress) {
+  let session = null;
+  try { session = JSON.parse(sessionStorage.getItem(storeKey) || 'null'); } catch {}
+  if (!session?.uploadId || !session.key) {
+    session = await api('/api/admin/upload-multipart', { method: 'POST', body: { lessonId, slot: 'video', ext: extOf(name), size: blob.size, ...extra } });
+    session.done = {};
+  }
+  const partSize = session.partSize || PART_SIZE;
+  const partCount = session.partCount || Math.ceil(blob.size / partSize);
+  const done = { ...(session.done || {}) };
+  let listed = { uploaded: [] };
+  try { listed = await api('/api/admin/upload-parts', { method: 'POST', body: { key: session.key, uploadId: session.uploadId, size: blob.size, partNumbers: [], list: true } }); }
+  catch { listed = { uploaded: [] }; }
+  for (const part of listed.uploaded || []) done[part.partNumber] = part.etag;
+  const loaded = new Array(partCount + 1).fill(0);
+  for (let n = 1; n <= partCount; n++) if (done[n]) loaded[n] = Math.min(partSize, blob.size - (n - 1) * partSize);
+  const report = () => onProgress?.(loaded.reduce((sum, value) => sum + value, 0) / blob.size);
+  report();
+  const queue = [];
+  for (let n = 1; n <= partCount; n++) if (!done[n]) queue.push(n);
+  const persist = () => { try { sessionStorage.setItem(storeKey, JSON.stringify({ uploadId: session.uploadId, key: session.key, path: session.path, contentType: session.contentType, partSize, partCount, done })); } catch {} };
+  persist();
+  const worker = async () => {
+    while (queue.length) {
+      const partNumber = queue.shift();
+      const start = (partNumber - 1) * partSize;
+      const chunk = blob.slice(start, Math.min(start + partSize, blob.size));
+      let etag = null; let error;
+      for (let attempt = 0; attempt < 3 && !etag; attempt++) {
+        try {
+          const signed = await api('/api/admin/upload-parts', { method: 'POST', body: { key: session.key, uploadId: session.uploadId, size: blob.size, partNumbers: [partNumber] } });
+          const url = signed.parts?.find(part => part.partNumber === partNumber)?.url;
+          if (!url) throw new Error('Нет ссылки для части видео.');
+          etag = await putPart(url, chunk, got => { loaded[partNumber] = got; report(); });
+        } catch (err) { error = err; await new Promise(resolve => setTimeout(resolve, 400 * (attempt + 1))); }
+      }
+      if (!etag) throw error || new Error('Часть видео не загрузилась.');
+      done[partNumber] = etag; loaded[partNumber] = chunk.size; report(); persist();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, Math.max(1, queue.length)) }, worker));
+  await api('/api/admin/upload-multipart/complete', { method: 'POST', body: { key: session.key, uploadId: session.uploadId, size: blob.size, parts: Object.entries(done).map(([partNumber, etag]) => ({ partNumber: Number(partNumber), etag })) } });
+  try { sessionStorage.removeItem(storeKey); } catch {}
+  return { key: session.key, path: session.path || `/${session.key}`, contentType: session.contentType || 'video/mp4' };
 }
 function resourceFrom(ticket, file, extra = {}) {
   return { title: extra.title, format: extOf(file.name).toUpperCase(), size: formatSize(file.size), filename: file.name, download: ticket.path, ...extra.fields };
@@ -186,7 +266,7 @@ function confirmDelete(lesson) {
 
 function blank() {
   const numbers = state.lessons.map(lesson => Number(lesson.number)).filter(number => Number.isInteger(number));
-  return { id: null, number: String((numbers.length ? Math.max(...numbers) : 0) + 1).padStart(2, '0'), title: '', description: '', status: 'draft', accessMode: 'all', logins: new Set(), pdfFile: null, pptxFile: null, presentation: null, clearPresentation: false, lectureFile: null, lecture: null, lectureNote: '', clearLecture: false, workbookFile: null, workbook: null, clearWorkbook: false, materials: [] };
+  return { id: null, number: String((numbers.length ? Math.max(...numbers) : 0) + 1).padStart(2, '0'), title: '', description: '', status: 'draft', accessMode: 'all', logins: new Set(), pdfFile: null, pptxFile: null, presentation: null, clearPresentation: false, lectureFile: null, lecture: null, lectureNote: '', clearLecture: false, workbookFile: null, workbook: null, clearWorkbook: false, materials: [], pages: [], videos: [] };
 }
 function fromLesson(lesson) {
   const draft = blank();
@@ -194,6 +274,8 @@ function fromLesson(lesson) {
   const pptxExtra = (lesson.materials || []).find(item => String(item.download || '').endsWith('/presentation.pptx'));
   draft.pptxKept = pptxExtra || ((lesson.presentation?.download || '').endsWith('.pptx') ? lesson.presentation : null);
   if ((lesson.presentation?.download || '').endsWith('.pptx')) draft.presentation = lesson.presentation;
+  draft.pages = (lesson.pages || []).map(item => ({ title: item.title || '', resource: item, file: null }));
+  draft.videos = (lesson.videos || []).map(item => ({ title: item.title || '', resource: item, file: null, posterFile: null, link: item.embedUrl || '' }));
   return draft;
 }
 function openEditor(draft) { state.editing = draft; renderEditor(); }
@@ -210,7 +292,7 @@ function renderEditor() {
   form.append(field('Название', 'title', draft.title, 'Например: Контент-план на месяц'));
   form.append(area('Коротко, о чём урок', 'description', draft.description, 'Одно-два предложения. Ученик увидит их под названием.'));
   form.append(accessBlock(draft));
-  form.append(presentationBlock(draft), lectureBlock(draft), workbookBlock(draft), materialsBlock(draft));
+  form.append(presentationBlock(draft), lectureBlock(draft), workbookBlock(draft), videosBlock(draft), pagesBlock(draft), materialsBlock(draft));
   const status = node('p', 'status'); status.id = 'save-status';
   const bar = node('div', 'progress'); bar.hidden = true; bar.append(node('span')); bar.id = 'save-bar';
   const error = node('div', 'error'); error.hidden = true; error.id = 'save-error';
@@ -225,7 +307,7 @@ function renderEditor() {
   form.addEventListener('submit', event => { event.preventDefault(); save(event.submitter?.dataset.status || 'draft'); });
   const side = node('aside', 'side');
   side.append(node('h3', '', 'Как это работает'), node('ol'));
-  const steps = ['Номер и название видят ученики в списке уроков.', 'PDF презентации превращается в картинки слайдов. PowerPoint — только для скачивания.', 'В лекции Word заголовки становятся разделами.', 'Черновик не виден ученикам. «Опубликовать» открывает урок сразу.', 'Большой файл идёт напрямую в хранилище, с полоской загрузки.'];
+  const steps = ['Номер и название видят ученики в списке уроков.', 'PDF презентации превращается в картинки слайдов. PowerPoint — только для скачивания.', 'Видео лучше загружать как MP4 (H.264). Ссылку YouTube, VK или Rutube можно вставить без файла.', 'HTML-страница открывается у ученика прямо в уроке. ZIP с index.html соберётся в одну страницу.', 'Черновик не виден ученикам. «Опубликовать» открывает урок сразу.', 'Большое видео грузится частями напрямую в хранилище, с полоской загрузки.'];
   for (const step of steps) side.querySelector('ol').append(node('li', '', step));
   layout.append(form, side); screen.append(back, layout); form.querySelector('[name=title]').focus();
 }
@@ -291,6 +373,86 @@ function workbookBlock(draft) {
   body.append(filePicker('Выбрать файл', '.docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document', file => { draft.workbookFile = file; draft.clearWorkbook = false; }));
   return fileBlock('Методичка', 'Word или PDF. Из PDF получаются страницы как в оригинале. Из Word — аккуратные текстовые страницы.', body);
 }
+function videosBlock(draft) {
+  const body = node('div');
+  const render = () => {
+    body.replaceChildren();
+    if (!draft.videos.length) body.append(node('p', 'hint', 'Пока нет видео.'));
+    draft.videos.forEach((item, index) => {
+      const row = node('div', 'material');
+      const title = node('input'); title.type = 'text'; title.value = item.title; title.placeholder = 'Как видео называется для ученика'; title.maxLength = 200;
+      title.addEventListener('input', () => { item.title = title.value; });
+      const controls = node('div', 'actions');
+      const up = moveButton(-1); up.disabled = index === 0; up.addEventListener('click', () => { swap(draft.videos, index, index - 1); render(); });
+      const down = moveButton(1); down.disabled = index === draft.videos.length - 1; down.addEventListener('click', () => { swap(draft.videos, index, index + 1); render(); });
+      const remove = node('button', 'mini danger', 'Убрать'); remove.type = 'button'; remove.addEventListener('click', () => { draft.videos.splice(index, 1); render(); });
+      controls.append(up, down, remove); row.append(title, controls); body.append(row);
+      const note = item.file ? item.file.name : item.link ? item.link : (item.resource?.filename || item.resource?.embedUrl || 'Видео уже в уроке');
+      body.append(node('div', 'file-name', note));
+      if (!item.link && !item.resource?.embedUrl) {
+        const poster = node('div', 'file-row');
+        const posterName = node('div', 'file-name', item.posterFile ? `Обложка: ${item.posterFile.name}` : (item.resource?.poster ? 'Обложка уже есть' : 'Обложка не выбрана'));
+        const posterButton = node('button', 'mini', 'Обложка'); posterButton.type = 'button';
+        const posterInput = node('input'); posterInput.type = 'file'; posterInput.accept = '.webp,.png,.jpg,.jpeg,image/webp,image/png,image/jpeg'; posterInput.hidden = true;
+        posterButton.addEventListener('click', () => posterInput.click());
+        posterInput.addEventListener('change', () => { item.posterFile = posterInput.files?.[0] || null; posterName.textContent = item.posterFile ? `Обложка: ${item.posterFile.name}` : 'Обложка не выбрана'; });
+        poster.append(posterName, posterButton, posterInput); body.append(poster);
+      }
+    });
+    const add = node('button', 'mini', 'Добавить видео'); add.type = 'button';
+    const input = node('input'); input.type = 'file'; input.hidden = true; input.accept = '.mp4,.webm,.mov,video/mp4,video/webm,video/quicktime';
+    add.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => {
+      const file = input.files?.[0]; if (!file) return;
+      if (file.size > 2 * 1024 * 1024 * 1024) { showError('Видео больше 2 ГБ. Сожмите его или вставьте ссылку.'); return; }
+      draft.videos.push({ title: file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' '), file, posterFile: null, resource: null, link: '' });
+      render();
+    });
+    const linkRow = node('div', 'file-row');
+    const linkInput = node('input'); linkInput.type = 'url'; linkInput.placeholder = 'Ссылка YouTube, VK или Rutube'; linkInput.setAttribute('aria-label', 'Ссылка на видео');
+    const addLink = node('button', 'mini', 'Добавить ссылку'); addLink.type = 'button';
+    addLink.addEventListener('click', () => {
+      const link = linkInput.value.trim();
+      if (!link) return;
+      draft.videos.push({ title: 'Видео', file: null, posterFile: null, resource: null, link });
+      linkInput.value = '';
+      render();
+    });
+    linkRow.append(linkInput, addLink);
+    body.append(add, input, linkRow);
+  };
+  render();
+  return fileBlock('Видео', 'MP4 с кодеком H.264 открывается на телефонах. WebM и MOV тоже можно, но не везде. Файл больше 32 МБ загружается частями: если связь оборвётся, сохранение продолжит с той же части. Или вставьте ссылку — файл тогда не нужен.', body);
+}
+function pagesBlock(draft) {
+  const body = node('div');
+  const render = () => {
+    body.replaceChildren();
+    if (!draft.pages.length) body.append(node('p', 'hint', 'Пока нет HTML-страниц.'));
+    draft.pages.forEach((item, index) => {
+      const row = node('div', 'material');
+      const title = node('input'); title.type = 'text'; title.value = item.title; title.placeholder = 'Как страница называется для ученика'; title.maxLength = 200;
+      title.addEventListener('input', () => { item.title = title.value; });
+      const controls = node('div', 'actions');
+      const up = moveButton(-1); up.disabled = index === 0; up.addEventListener('click', () => { swap(draft.pages, index, index - 1); render(); });
+      const down = moveButton(1); down.disabled = index === draft.pages.length - 1; down.addEventListener('click', () => { swap(draft.pages, index, index + 1); render(); });
+      const remove = node('button', 'mini danger', 'Убрать'); remove.type = 'button'; remove.addEventListener('click', () => { draft.pages.splice(index, 1); render(); });
+      controls.append(up, down, remove); row.append(title, controls); body.append(row);
+      body.append(node('div', 'file-name', item.file ? item.file.name : (item.resource?.filename || 'Страница уже в уроке')));
+    });
+    const add = node('button', 'mini', 'Добавить HTML'); add.type = 'button';
+    const input = node('input'); input.type = 'file'; input.hidden = true; input.accept = '.html,.htm,.zip,text/html,application/zip';
+    add.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => {
+      const file = input.files?.[0]; if (!file) return;
+      draft.pages.push({ title: file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' '), file, resource: null });
+      render();
+    });
+    body.append(add, input);
+  };
+  render();
+  return fileBlock('HTML-страница', 'Файл .html или .htm. Можно ZIP: внутри index.html и картинки, стили, скрипты рядом. Имена файлов лучше латиницей. Страница откроется у ученика в отдельном окне внутри урока и не увидит вход на сайт.', body);
+}
 function materialsBlock(draft) {
   const body = node('div'); body.id = 'materials';
   const render = () => {
@@ -346,6 +508,8 @@ async function save(status) {
   if (!draft.title) return showError('Напишите название урока.');
   if (draft.accessMode === 'logins' && !draft.logins.size) return showError('Отметьте хотя бы одного ученика или откройте урок всем.');
   for (const item of draft.materials) if (!item.title.trim()) return showError('У каждого дополнительного файла нужно название, которое увидит ученик.');
+  for (const item of draft.pages) if (!item.title.trim()) return showError('У каждой HTML-страницы нужно название, которое увидит ученик.');
+  for (const item of draft.videos) if (!item.title.trim()) return showError('У каждого видео нужно название, которое увидит ученик.');
   showError(''); setBusy(true);
   try {
     if (!draft.id) {
@@ -361,6 +525,8 @@ async function save(status) {
     if (lecture !== undefined) patch.lecture = lecture;
     const workbook = await buildWorkbook(draft);
     if (workbook !== undefined) patch.workbook = workbook;
+    patch.videos = await buildVideos(draft);
+    patch.pages = await buildPages(draft);
     showStatus('Сохраняем урок…', 1);
     const saved = await api(`/api/admin/lessons/${draft.id}`, { method: 'PUT', body: patch });
     state.revision = saved.revision;
@@ -460,6 +626,61 @@ async function buildMaterials(draft, presentation) {
   return items.filter(item => item.download && !seen.has(item.download) && seen.add(item.download));
 }
 function extraIndex(download) { return Number(String(download || '').match(/\/extras\/(\d+)\./)?.[1] || 0); }
+function mediaIndex(download, kind) {
+  const match = kind === 'page' ? String(download || '').match(/\/html\/(\d+)\.html?$/) : String(download || '').match(/\/videos\/(\d+)\./);
+  return Number(match?.[1] || 0);
+}
+async function buildPages(draft) {
+  const used = new Set(draft.pages.map(item => mediaIndex(item.resource?.download, 'page')));
+  let cursor = 1;
+  const nextIndex = () => { while (used.has(cursor)) cursor += 1; if (cursor > 20) throw new Error('Слишком много HTML-страниц. Максимум — 20.'); used.add(cursor); return cursor; };
+  const items = [];
+  for (const item of draft.pages) {
+    if (item.file) {
+      showStatus(`Собираем «${item.title.trim()}»…`);
+      const packed = await packLessonHtml(item.file.name, await item.file.arrayBuffer());
+      const blob = new Blob([packed.bytes], { type: 'text/html' });
+      const index = nextIndex();
+      showStatus(`Загружаем «${item.title.trim()}»…`, 0.05);
+      const ticket = await upload(draft.id, 'html', blob, packed.filename, { index }, ratio => showStatus(`Загружаем «${item.title.trim()}»… ${Math.round(ratio * 100)}%`, ratio));
+      items.push({ ...resourceFrom(ticket, { name: packed.filename, size: blob.size }, { title: item.title.trim() }), url: ticket.path });
+    } else if (item.resource) items.push({ ...item.resource, title: item.title.trim() });
+  }
+  return items;
+}
+async function buildVideos(draft) {
+  const used = new Set(draft.videos.map(item => mediaIndex(item.resource?.download, 'video')));
+  let cursor = 1;
+  const nextIndex = () => { while (used.has(cursor)) cursor += 1; if (cursor > 20) throw new Error('Слишком много видео. Максимум — 20.'); used.add(cursor); return cursor; };
+  const items = [];
+  for (const item of draft.videos) {
+    const title = item.title.trim();
+    if (item.file) {
+      const index = nextIndex();
+      showStatus(`Загружаем «${title}»…`, 0.02);
+      const ticket = await upload(draft.id, 'video', item.file, item.file.name, { index }, ratio => showStatus(`Загружаем «${title}»… ${Math.round(ratio * 100)}%`, ratio));
+      const video = { ...resourceFrom(ticket, item.file, { title }), url: ticket.path, kind: 'file' };
+      if (item.posterFile) {
+        const posterExt = extOf(item.posterFile.name);
+        showStatus(`Загружаем обложку «${title}»…`);
+        const poster = await upload(draft.id, 'poster', item.posterFile, item.posterFile.name, { index });
+        video.poster = poster.path;
+        if (!['webp', 'png', 'jpg', 'jpeg'].includes(posterExt)) throw new Error('Обложка — это WebP, PNG или JPEG.');
+      } else if (item.resource?.poster) video.poster = item.resource.poster;
+      items.push(video);
+    } else if (item.link && !item.resource) items.push({ title, kind: 'embed', embedUrl: item.link });
+    else if (item.resource) {
+      const copy = { ...item.resource, title };
+      if (item.posterFile && copy.download) {
+        const index = mediaIndex(copy.download, 'video');
+        showStatus(`Загружаем обложку «${title}»…`);
+        copy.poster = (await upload(draft.id, 'poster', item.posterFile, item.posterFile.name, { index })).path;
+      }
+      items.push(copy);
+    }
+  }
+  return items;
+}
 
 async function openUsers() {
   state.editing = null;
