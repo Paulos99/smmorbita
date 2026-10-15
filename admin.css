@@ -43,6 +43,7 @@ h1{font:800 34px/1.25 var(--heading);letter-spacing:-1px;margin:8px 0 0}
 .badge.quiet{color:#b7b7ae;background:#242424}
 .actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
 .actions button,.mini{background:#242424;border:1px solid #4a4a4a;border-radius:999px;padding:7px 11px;font-size:12px}
+.actions button.arrow{width:36px;height:36px;padding:0;font-size:16px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
 .actions button:hover,.mini:hover{border-color:#8eb6e6}
 .actions .danger{background:transparent}
 .notice{border:1px solid #345979;background:#172433;color:#d5e8ff;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:14px}
@@ -107,10 +108,25 @@ dialog p{color:#c8c8be}
 .table-wrap{overflow-x:auto}
 .user-table{width:100%;border-collapse:separate;border-spacing:0 8px}
 .user-table th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#a3a399;text-align:left;padding:0 12px 4px;font-weight:650}
-.user-table td{background:#1c1c1c;border-top:1px solid #3c3c3c;border-bottom:1px solid #3c3c3c;padding:12px;vertical-align:middle;overflow-wrap:anywhere}
+.user-table td{background:#1c1c1c;border-top:1px solid #3c3c3c;border-bottom:1px solid #3c3c3c;padding:12px;vertical-align:middle;overflow-wrap:break-word}
+.user-table td.lessons-cell{overflow-wrap:anywhere}
 .user-table td:first-child{border-left:1px solid #3c3c3c;border-radius:14px 0 0 14px}
 .user-table td:last-child{border-right:1px solid #3c3c3c;border-radius:0 14px 14px 0}
 .user-login{font-weight:650}
+.user-table td.nowrap{white-space:nowrap}
+.user-tools{display:flex;flex-wrap:wrap;gap:16px 22px;align-items:flex-end;margin:0 0 14px}
+.user-tools .field{margin:0}
+.user-search{flex:1 1 240px;max-width:420px;margin:0}
+.user-filter-groups{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end;flex:1 1 320px}
+.filter-block>span{display:block;font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:#c8c8be;margin-bottom:7px;font-weight:650}
+.chip-set{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:#242424;border:1px solid #4a4a4a;border-radius:999px;padding:8px 12px;font-size:13px;min-height:36px}
+.chip:hover{border-color:#8eb6e6}
+.chip[aria-checked=true]{background:#335f95;border-color:#6599d9;color:#fff}
+.user-lesson{flex:1 1 220px;max-width:340px;margin:0}
+.user-lesson select{width:100%;background:#121212;border:1px solid #4a4a4a;border-radius:10px;padding:10px 12px;font-size:14px}
+.user-meta{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 10px;color:#9d9d94;font-size:13px}
+.user-meta p{margin:0}
 .user-card{margin-bottom:16px}
 .lesson-picks{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
 .lesson-picks label{display:flex;gap:8px;align-items:flex-start;background:#161616;border:1px solid #3f3f3f;border-radius:12px;padding:10px 12px;font-size:13px;max-width:100%}
@@ -137,5 +153,6 @@ dialog p{color:#c8c8be}
   .password-once .primary,.dialog-actions .primary,.dialog-actions .secondary,.dialog-actions .danger{width:100%}
   .dialog-actions{flex-direction:column-reverse}
   .choices{grid-template-columns:1fr}
+  .user-search,.user-lesson{max-width:none;flex-basis:100%}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

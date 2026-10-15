@@ -5,7 +5,7 @@ import { pdfToWebpBlobs, textToWebpBlobs } from './previews.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const node = (tag, className, text) => { const el = document.createElement(tag); if (className) el.className = className; if (text != null) el.textContent = text; return el; };
 const screen = $('#screen');
-const state = { revision: 1, lessons: [], people: [], notice: '', editing: null, busy: false, me: '', userForm: null };
+const state = { revision: 1, lessons: [], people: [], notice: '', editing: null, busy: false, me: '', userForm: null, userQuery: '', userRole: 'all', userStatus: 'all', userLesson: '' };
 
 const localApi = () => location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 const apiBase = () => localApi() ? '' : API;
@@ -122,6 +122,14 @@ function renderList() {
   state.lessons.forEach((lesson, index) => list.append(row(lesson, index)));
   screen.append(list);
 }
+function moveButton(direction) {
+  const up = direction < 0;
+  const button = node('button', 'arrow', up ? '↑' : '↓');
+  button.type = 'button';
+  button.setAttribute('aria-label', up ? 'Выше' : 'Ниже');
+  button.title = up ? 'Выше' : 'Ниже';
+  return button;
+}
 function row(lesson, index) {
   const article = node('article', 'row');
   article.append(node('div', 'num', lesson.number));
@@ -134,8 +142,8 @@ function row(lesson, index) {
   copy.append(meta);
   const actions = node('div', 'actions');
   const edit = node('button', '', 'Изменить'); edit.type = 'button'; edit.addEventListener('click', () => openEditor(fromLesson(lesson)));
-  const up = node('button', '', 'Выше'); up.type = 'button'; up.disabled = index === 0; up.addEventListener('click', () => move(index, -1));
-  const down = node('button', '', 'Ниже'); down.type = 'button'; down.disabled = index === state.lessons.length - 1; down.addEventListener('click', () => move(index, 1));
+  const up = moveButton(-1); up.disabled = index === 0; up.addEventListener('click', () => move(index, -1));
+  const down = moveButton(1); down.disabled = index === state.lessons.length - 1; down.addEventListener('click', () => move(index, 1));
   const remove = node('button', 'danger', 'Удалить'); remove.type = 'button'; remove.addEventListener('click', () => confirmDelete(lesson));
   actions.append(edit, up, down, remove); article.append(copy, actions); return article;
 }
@@ -281,8 +289,8 @@ function materialsBlock(draft) {
       const title = node('input'); title.type = 'text'; title.value = item.title; title.placeholder = 'Как файл называется для ученика'; title.maxLength = 200;
       title.addEventListener('input', () => { item.title = title.value; });
       const controls = node('div', 'actions');
-      const up = node('button', 'mini', 'Выше'); up.type = 'button'; up.disabled = index === 0; up.addEventListener('click', () => { swap(draft.materials, index, index - 1); render(); });
-      const down = node('button', 'mini', 'Ниже'); down.type = 'button'; down.disabled = index === draft.materials.length - 1; down.addEventListener('click', () => { swap(draft.materials, index, index + 1); render(); });
+      const up = moveButton(-1); up.disabled = index === 0; up.addEventListener('click', () => { swap(draft.materials, index, index - 1); render(); });
+      const down = moveButton(1); down.disabled = index === draft.materials.length - 1; down.addEventListener('click', () => { swap(draft.materials, index, index + 1); render(); });
       const remove = node('button', 'mini danger', 'Убрать'); remove.type = 'button'; remove.addEventListener('click', () => { draft.materials.splice(index, 1); render(); });
       const file = node('div', 'file-name', item.file ? item.file.name : (item.resource?.filename || 'Файл уже в уроке'));
       controls.append(up, down, remove); row.append(title, controls); body.append(row, file);
@@ -294,7 +302,7 @@ function materialsBlock(draft) {
     body.append(add, input);
   };
   render();
-  return fileBlock('Дополнительные материалы', 'Шаблоны и памятки. Название видит ученик. Порядок можно менять кнопками.', body);
+  return fileBlock('Дополнительные материалы', 'Шаблоны и памятки. Название видит ученик. Порядок можно менять стрелками.', body);
 }
 function existingLine(resource, onClear) {
   const box = node('div', 'file-box');
@@ -446,13 +454,14 @@ async function openUsers() {
   catch (error) { state.notice = error.message; }
   renderUsers();
 }
-function roleTitle(person) { return person.role === 'teacher' || person.roles?.includes('teacher') ? 'Преподаватель' : 'Ученик'; }
+function personIsTeacher(person) { return person.role === 'teacher' || person.roles?.includes('teacher'); }
+function roleTitle(person) { return personIsTeacher(person) ? 'Преподаватель' : 'Ученик'; }
 function lessonTitle(id) {
   const lesson = state.lessons.find(item => String(item.id) === String(id));
   return lesson ? `${lesson.number} · ${lesson.title || 'Без названия'}` : `урок ${id}`;
 }
 function lessonsTitle(person) {
-  if (person.role === 'teacher' || person.roles?.includes('teacher')) return 'все уроки';
+  if (personIsTeacher(person)) return 'все уроки';
   if (!person.lessons?.length) return 'все уроки';
   return person.lessons.map(lessonTitle).join(', ');
 }
@@ -519,7 +528,39 @@ function showPassword(password, title, self) {
 async function refreshPeople() {
   state.people = (await api('/api/admin/accounts')).accounts;
 }
+function personSeesLesson(person, lessonId) {
+  if (!lessonId) return true;
+  if (personIsTeacher(person) || !person.lessons?.length) return true;
+  return person.lessons.some(id => String(id) === String(lessonId));
+}
+function filteredPeople() {
+  const query = state.userQuery.trim().toLowerCase();
+  return state.people.filter(person => {
+    if (query && !`${person.login || ''} ${person.name || ''}`.toLowerCase().includes(query)) return false;
+    const teacher = personIsTeacher(person);
+    if (state.userRole === 'teacher' && !teacher) return false;
+    if (state.userRole === 'student' && teacher) return false;
+    if (state.userStatus === 'on' && person.disabled) return false;
+    if (state.userStatus === 'off' && !person.disabled) return false;
+    return personSeesLesson(person, state.userLesson);
+  });
+}
+function userFiltersOn() {
+  return Boolean(state.userQuery.trim() || state.userRole !== 'all' || state.userStatus !== 'all' || state.userLesson);
+}
+function clearUserFilters() {
+  state.userQuery = '';
+  state.userRole = 'all';
+  state.userStatus = 'all';
+  state.userLesson = '';
+}
+function rememberUserForm() {
+  if (state.userForm && $('#user-form')) readUserForm();
+}
 function renderUsers() {
+  const queryFocused = document.activeElement?.id === 'user-query';
+  const caret = queryFocused ? document.activeElement.selectionStart : null;
+  const focusId = queryFocused ? '' : (document.activeElement?.id || '');
   screen.replaceChildren();
   screen.append(tabs('users'));
   const head = node('div', 'page-head');
@@ -542,6 +583,24 @@ function renderUsers() {
     screen.append(empty);
     return;
   }
+  screen.append(userTools());
+  const people = filteredPeople();
+  if (userFiltersOn()) {
+    const meta = node('div', 'user-meta');
+    meta.append(node('p', '', `Показано ${people.length} из ${state.people.length}`));
+    const reset = node('button', 'text-link', 'Сбросить фильтры');
+    reset.type = 'button';
+    reset.addEventListener('click', () => { rememberUserForm(); clearUserFilters(); renderUsers(); $('#user-query')?.focus(); });
+    meta.append(reset);
+    screen.append(meta);
+  }
+  if (!people.length) {
+    const empty = node('div', 'empty');
+    empty.append(node('h2', '', 'Никого не нашлось'), node('p', '', 'Измените запрос или сбросьте фильтры.'));
+    screen.append(empty);
+    restoreUserFocus(queryFocused, caret, focusId);
+    return;
+  }
   const wrap = node('div', 'table-wrap');
   const table = node('table', 'user-table');
   const caption = node('caption', 'sr-only', 'Учётные записи школы');
@@ -551,19 +610,103 @@ function renderUsers() {
   for (const cell of headRow.children) cell.scope = 'col';
   thead.append(headRow);
   const tbody = node('tbody');
-  for (const person of state.people) tbody.append(userRow(person));
+  for (const person of people) tbody.append(userRow(person));
   table.append(caption, thead, tbody);
   wrap.append(table);
   screen.append(wrap);
+  restoreUserFocus(queryFocused, caret, focusId);
+}
+function restoreUserFocus(queryFocused, caret, focusId) {
+  if (queryFocused) {
+    const input = $('#user-query');
+    input?.focus();
+    if (caret != null) input?.setSelectionRange(caret, caret);
+    return;
+  }
+  if (focusId?.startsWith('filter-') || focusId === 'user-lesson') document.getElementById(focusId)?.focus();
+}
+function userTools() {
+  const tools = node('div', 'user-tools');
+  const search = node('label', 'field user-search');
+  search.append(node('span', '', 'ПОИСК'));
+  const input = node('input');
+  input.type = 'search';
+  input.id = 'user-query';
+  input.placeholder = 'Имя или логин';
+  input.value = state.userQuery;
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.setAttribute('aria-label', 'Поиск по имени или логину');
+  input.addEventListener('input', () => {
+    rememberUserForm();
+    state.userQuery = input.value;
+    renderUsers();
+  });
+  search.append(input);
+  const groups = node('div', 'user-filter-groups');
+  groups.append(chipSet('Роль', 'userRole', [['all', 'Все'], ['teacher', 'Преподаватели'], ['student', 'Ученики']]));
+  groups.append(chipSet('Статус', 'userStatus', [['all', 'Все'], ['on', 'Включены'], ['off', 'Отключены']]));
+  const lesson = lessonFilter();
+  if (lesson) groups.append(lesson);
+  tools.append(search, groups);
+  return tools;
+}
+function chipSet(label, key, options) {
+  const block = node('div', 'filter-block');
+  block.append(node('span', '', label));
+  const group = node('div', 'chip-set');
+  group.setAttribute('role', 'radiogroup');
+  group.setAttribute('aria-label', label);
+  for (const [id, text] of options) {
+    const button = node('button', 'chip', text);
+    button.type = 'button';
+    button.id = `filter-${key}-${id}`;
+    button.setAttribute('role', 'radio');
+    button.setAttribute('aria-checked', state[key] === id ? 'true' : 'false');
+    button.addEventListener('click', () => {
+      if (state[key] === id) return;
+      rememberUserForm();
+      state[key] = id;
+      renderUsers();
+    });
+    group.append(button);
+  }
+  block.append(group);
+  return block;
+}
+function lessonFilter() {
+  const lessons = [...state.lessons].sort((a, b) => String(a.number).localeCompare(String(b.number), 'ru', { numeric: true }));
+  if (!lessons.length) return null;
+  const block = node('label', 'filter-block user-lesson');
+  block.append(node('span', '', 'Видит урок'));
+  const select = node('select');
+  select.id = 'user-lesson';
+  const any = node('option', '', 'Любой');
+  any.value = '';
+  select.append(any);
+  for (const lesson of lessons) {
+    const option = node('option', '', `${lesson.number} · ${lesson.title || 'Без названия'}`);
+    option.value = String(lesson.id);
+    select.append(option);
+  }
+  if (![...select.options].some(option => option.value === state.userLesson)) state.userLesson = '';
+  select.value = state.userLesson;
+  select.addEventListener('change', () => {
+    rememberUserForm();
+    state.userLesson = select.value;
+    renderUsers();
+  });
+  block.append(select);
+  return block;
 }
 function userRow(person) {
   const row = node('tr');
   const cells = [
     ['Логин', person.login, 'user-login'],
     ['Имя', person.name, ''],
-    ['Роль', roleTitle(person), ''],
+    ['Роль', roleTitle(person), 'nowrap'],
     ['Уроки', lessonsTitle(person), 'lessons-cell'],
-    ['Статус', person.disabled ? 'Отключена' : 'Включена', ''],
+    ['Статус', person.disabled ? 'Отключена' : 'Включена', 'nowrap'],
   ];
   for (const [label, text, className] of cells) {
     const cell = node('td', className, text);
@@ -580,7 +723,7 @@ function userRow(person) {
       mode: 'edit',
       login: person.login,
       name: person.name,
-      role: person.role === 'teacher' || person.roles?.includes('teacher') ? 'teacher' : 'student',
+      role: personIsTeacher(person) ? 'teacher' : 'student',
       lessons: new Set(person.lessons || []),
       error: '',
     };
@@ -689,6 +832,7 @@ async function saveUser() {
     if (draft.mode === 'create') {
       const data = await api('/api/admin/accounts', { method: 'POST', body: { login: draft.login, name: draft.name, role: draft.role, lessons } });
       state.userForm = null;
+      clearUserFilters();
       state.notice = `Пользователь ${data.account.name} создан.`;
       showPassword(data.password, `Пароль для ${data.account.name}`, false);
       await refreshPeople();
