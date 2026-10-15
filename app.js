@@ -73,7 +73,7 @@ function materialsPlaceholder() {
 function workbookPlaceholder() {
   const wrap = node('div', 'workbook-card'), copy = node('div');
   copy.append(node('span', 'section-index', 'ПРОВЕРЬТЕ СЕБЯ ПЕРЕД ВЫХОДОМ В ПОЛЕ'), node('h4', '', 'От теории — к уверенности'), node('p', '', 'Методичка соберёт ключевые мысли урока и задания для самостоятельной проверки.'), node('span', 'state-tag', 'Методичка готовится'));
-  const img = node('img'); img.src = './assets/target.png'; img.alt = 'Точно в ЦА'; img.loading = 'lazy'; wrap.append(copy, img); return wrap;
+  const img = node('img'); img.src = './assets/target.webp'; img.alt = 'Точно в ЦА'; img.loading = 'lazy'; wrap.append(copy, img); return wrap;
 }
 async function selectLesson(index, scroll = false) {
   if (index < 0 || index >= lessons.length) return;
@@ -208,7 +208,7 @@ class PDFViewer {
       if (!pdfModule) pdfModule = import('./assets/pdf.mjs'); const pdfjs = await pdfModule;
       if (this.dead || !this.alive()) return;
       pdfjs.GlobalWorkerOptions.workerSrc = new URL('./assets/pdf.worker.mjs', import.meta.url).href;
-      this.task = pdfjs.getDocument({url:safeUrl(this.resource.preview.url),standardFontDataUrl:new URL('./assets/standard_fonts/',import.meta.url).href,isEvalSupported:false});
+      this.task = pdfjs.getDocument({url:safeUrl(this.resource.preview.url),standardFontDataUrl:new URL('./assets/standard_fonts/',import.meta.url).href,isEvalSupported:false,disableRange:true,disableStream:true,disableAutoFetch:false});
       this.pdf = await this.task.promise; if (this.dead || !this.alive()) return;
       this.stage.replaceChildren(this.canvas); await this.render();
     } catch { if (!this.dead && this.alive()) previewError(this.container, 'Не удалось открыть документ. Попробуйте скачать исходный файл.', this.resource); }
@@ -237,8 +237,9 @@ class ImageViewer {
     this.previous=node('button','','←');this.previous.type='button';this.previous.setAttribute('aria-label','Предыдущая страница');this.next=node('button','','→');this.next.type='button';this.next.setAttribute('aria-label','Следующая страница');this.label=node('span');this.label.setAttribute('aria-live','polite');
     this.previous.addEventListener('click',()=>this.go(this.page-1));this.next.addEventListener('click',()=>this.go(this.page+1));navigation.append(this.previous,this.label,this.next);
     if(!container.closest('#preview-dialog')){const expand=node('button','','↗');expand.type='button';expand.setAttribute('aria-label','Открыть документ в большом окне');expand.addEventListener('click',()=>openPreview(resource));tools.append(expand);}
-    controls.append(navigation,tools);root.append(stage,controls);container.append(root);this.go(0);
+    controls.append(navigation,tools);root.append(stage,controls);container.append(root);this.go(0);this.preload();
   }
+  preload(){const urls=this.resource.preview.urls.map(safeUrl);this.cache=[];let i=1;const next=()=>{if(this.dead||i>=urls.length)return;const im=new Image();im.decoding='async';this.cache.push(im);im.onload=im.onerror=next;im.src=urls[i++];};for(let k=0;k<4;k++)next();}
   go(page){if(this.dead||!this.alive()||page<0||page>=this.resource.preview.urls.length)return;this.page=page;this.image.src=safeUrl(this.resource.preview.urls[page]);this.image.alt=`${this.resource.title}, страница ${page+1} из ${this.resource.preview.urls.length}`;this.label.textContent=`${page+1} / ${this.resource.preview.urls.length}`;this.previous.disabled=page===0;this.next.disabled=page===this.resource.preview.urls.length-1;}
   destroy(){this.dead=true;this.image.onerror=null;this.image.removeAttribute('src');}
 }
