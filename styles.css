@@ -37,8 +37,8 @@
   .viewer-loading::before{content:"";display:block;height:148px;border-radius:12px;margin:0 auto 14px;max-width:100%;background:#2a2a2a;animation:sk-pulse 400ms ease-in-out infinite alternate}
   .slide-skeleton{opacity:.72;animation:sk-pulse 400ms ease-in-out infinite alternate}
   .slide-skeleton.is-done{opacity:0;animation:none}
-  .slide-frame .gallery-image{opacity:0;transform:translateX(var(--slide-x,0));transition:opacity 260ms ease,transform 260ms ease}
-  .slide-frame .gallery-image.is-shown{opacity:1;transform:none}
+  .slide-frame .gallery-image{opacity:0;transition:opacity 200ms ease}
+  .slide-frame .gallery-image.is-shown{opacity:1}
   .pdf-stage canvas{transition:opacity 220ms ease}
   .pdf-stage canvas.is-fading{opacity:0}
   .image-preview,.text-preview,.reader{animation:fade-in 280ms ease}
@@ -61,4 +61,32 @@
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   *,*::before,*::after{animation:none!important;transition:none!important}
+}
+.tape{justify-content:flex-start}
+.tape-track{display:flex;width:max-content;flex:none}
+.tape-group{display:flex;align-items:center;gap:35px;padding-right:35px;flex:none}
+@media(max-width:760px){.tape-group{gap:25px;padding-right:25px}}
+@media(prefers-reduced-motion:no-preference){
+  .tape-track{animation:tape-scroll 22s linear infinite}
+  .hero-art>img{transform:translateY(0) rotate(-8deg);transition:transform 280ms ease,filter 280ms ease}
+  .hero-art:hover>img{transform:translateY(-12px) rotate(-8deg);filter:drop-shadow(0 22px 16px #000a) drop-shadow(0 0 18px #5395e9aa)}
+  .hero-art .stamp{transform:translateY(0) rotate(9deg);transition:transform 280ms ease,color 280ms ease,border-color 280ms ease}
+  .hero-art:hover .stamp{transform:translateY(-8px) rotate(9deg);color:#f3b4b2;border-color:#e0706ccc}
+  .radar{animation:radar-drift 12s ease-in-out infinite alternate}
+  .radar span{animation:radar-sweep 7.5s linear infinite}
+  .radar:before,.radar:after{animation:cross-glow 2.4s ease-in-out infinite alternate}
+}
+@keyframes tape-scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@keyframes radar-drift{from{transform:rotate(8deg)}to{transform:rotate(20deg)}}
+@keyframes radar-sweep{to{transform:rotate(1turn)}}
+@keyframes cross-glow{from{opacity:.28}to{opacity:1}}
+@media(prefers-reduced-motion:no-preference) and (hover:none) and (pointer:coarse){
+  .hero-art:hover>img{transform:translateY(0) rotate(-8deg);filter:drop-shadow(0 15px 15px #0008)}
+  .hero-art:hover .stamp{transform:translateY(0) rotate(9deg);color:#d85e5a;border-color:#d33c3a66}
+}
+@media(prefers-reduced-motion:reduce){
+  .tape-group+.tape-group{display:none}
+  .tape{justify-content:center}
+  .tape-track{width:100%;justify-content:center}
+  .tape-group{padding-right:0}
 }

@@ -16,18 +16,20 @@ if (!reduceMotion && typeof IntersectionObserver === 'function') {
       entry.target.classList.add('in');
       revealObserver.unobserve(entry.target);
     }
-  }, { rootMargin: '0px 0px -4% 0px', threshold: 0.12 });
+  }, { rootMargin: '40px 0px 80px 0px', threshold: 0.01 });
 }
 function armReveals(root) {
   if (!revealObserver || !root) return;
   const seen = new Map();
   for (const el of root.querySelectorAll('.lesson-tab, .file-card, .useful-card, .workbook-card')) {
-    if (el.classList.contains('reveal')) continue;
-    const parent = el.parentElement;
-    const i = seen.get(parent) || 0;
-    seen.set(parent, i + 1);
-    el.style.setProperty('--i', String(Math.min(i, 7)));
-    el.classList.add('reveal');
+    if (el.classList.contains('in')) continue;
+    if (!el.classList.contains('reveal')) {
+      const parent = el.parentElement;
+      const i = seen.get(parent) || 0;
+      seen.set(parent, i + 1);
+      el.style.setProperty('--i', String(Math.min(i, 7)));
+      el.classList.add('reveal');
+    }
     revealObserver.observe(el);
   }
 }
@@ -141,7 +143,7 @@ async function selectLesson(index, scroll = false) {
   const motionSwap = epoch > 0;
   current = index; const version = ++epoch, lesson = lessons[index];
   for (const viewer of inlineViewers.splice(0)) viewer.destroy();
-  releaseReveals($('#lesson'));
+  for (const id of ['presentation-view', 'lecture-view', 'materials-view', 'workbook-view']) releaseReveals(document.getElementById(id));
   for (const [i, button] of [...$('#lesson-tabs').children].entries()) { button.setAttribute('aria-selected', String(i === index)); button.tabIndex = i === index ? 0 : -1; }
   $('#lesson').setAttribute('aria-labelledby', `tab-${lesson.id}`);
   $('#lesson-code').textContent = `УЧЕБНАЯ МИССИЯ / ${lesson.number.padStart(3, '0')}`;
@@ -281,18 +283,12 @@ class PDFViewer {
       this.stage.replaceChildren(this.canvas); await this.render();
     } catch { if (!this.dead && this.alive()) previewError(this.container, 'Не удалось открыть документ. Попробуйте скачать исходный файл.', this.resource); }
   }
-  go(page) { if (!this.pdf || page < 1 || page > this.pdf.numPages || this.dead) return; this.page = page; this.fadePage = !reduceMotion; this.render(); }
+  go(page) { if (!this.pdf || page < 1 || page > this.pdf.numPages || this.dead) return; this.page = page; this.render(); }
   async render() {
     if (!this.pdf || this.dead || !this.alive()) return;
     const id = ++this.renderId; this.renderTask?.cancel();
     this.previous.disabled = this.page <= 1; this.next.disabled = this.page >= this.pdf.numPages;
     this.label.textContent = `${this.page} / ${this.pdf.numPages}`; this.canvas.setAttribute('aria-label', `${this.resource.title || 'Документ'} — страница ${this.page} из ${this.pdf.numPages}`);
-    const fade = this.fadePage; this.fadePage = false;
-    if (fade) {
-      this.canvas.classList.add('is-fading');
-      await new Promise(resolve => { this.fadeTimer = setTimeout(resolve, 200); });
-      if (id !== this.renderId || this.dead || !this.alive()) return;
-    }
     try {
       const page = await this.pdf.getPage(this.page); if (id !== this.renderId || this.dead || !this.alive()) return;
       const viewport = page.getViewport({scale:1}), width = Math.max(200, this.stage.clientWidth - (innerWidth < 760 ? 20 : 40));
@@ -344,7 +340,6 @@ class ImageViewer {
     if (!url) return;
     const current = this.slots[this.slot];
     if (page === this.page && current.getAttribute('src')) return;
-    const dir = page >= this.page ? 1 : -1;
     const first = !current.getAttribute('src');
     this.page = page;
     const caption = `${this.resource.title}, страница ${page + 1} из ${this.resource.preview.urls.length}`;
@@ -354,26 +349,33 @@ class ImageViewer {
     const incoming = first || reduceMotion ? current : this.slots[1 - this.slot];
     const outgoing = current;
     const token = ++this.nav;
-    incoming.dataset.wave = String(token);
     incoming.alt = caption;
     incoming.onerror = () => { if (token === this.nav && !this.dead && this.alive()) previewError(container, 'Не удалось открыть страницу. Исходный файл можно скачать.', this.resource); };
     const reveal = () => {
       if (token !== this.nav || this.dead || incoming.dataset.shown === String(token)) return;
       incoming.dataset.shown = String(token);
       incoming.removeAttribute('aria-hidden');
-      if (!reduceMotion && incoming !== outgoing) {
-        outgoing.style.setProperty('--slide-x', `${-dir * 16}px`);
-        outgoing.classList.remove('is-shown');
-        outgoing.setAttribute('aria-hidden', 'true');
+      if (incoming !== outgoing) {
+        outgoing.style.zIndex = '1';
+        incoming.style.zIndex = '2';
         const stale = outgoing;
-        const clear = () => { if (stale.dataset.wave !== String(token)) return; stale.removeAttribute('src'); stale.alt = ''; };
-        stale.addEventListener('transitionend', event => { if (event.propertyName === 'opacity') clear(); }, { once: true });
-        setTimeout(clear, 420);
+        const clear = () => {
+          if (this.slots[this.slot] === stale) return;
+          stale.classList.remove('is-shown');
+          stale.setAttribute('aria-hidden', 'true');
+          stale.removeAttribute('src');
+          stale.alt = '';
+          stale.style.zIndex = '';
+        };
+        if (reduceMotion) clear();
+        else {
+          incoming.addEventListener('transitionend', event => { if (event.propertyName === 'opacity') clear(); }, { once: true });
+          setTimeout(clear, 280);
+        }
         this.slot = this.slots.indexOf(incoming);
       }
       const show = () => { if (token === this.nav && !this.dead) { incoming.classList.add('is-shown'); this.hideSkeleton(); } };
       if (reduceMotion) { show(); return; }
-      incoming.style.setProperty('--slide-x', first ? '0px' : `${dir * 16}px`);
       incoming.classList.remove('is-shown');
       requestAnimationFrame(() => requestAnimationFrame(show));
     };
