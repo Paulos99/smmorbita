@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://storage.yandexcloud.net; font-src 'self'; worker-src 'self' blob:; connect-src 'self' https://bba2iub2khhe4eg3fagq.containers.yandexcloud.net https://storage.yandexcloud.net; object-src 'none'; base-uri 'self'; form-action 'self'"><meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#141414">
   <meta name="description" content="Учебный архив СММ ШКОЛЫ: от контента до клиента. Презентации, лекции, дополнительные материалы и методички в одном месте.">
   <title>СММ ШКОЛА — От контента до клиента</title>
@@ -12,7 +12,8 @@
 <header class="header"><div class="header-inner">
   <a class="brand" href="#top" aria-label="СММ ШКОЛА — в начало"><img src="./assets/school.webp" alt=""><span>СММ ШКОЛА<small>ОТ КОНТЕНТА ДО КЛИЕНТА</small></span></a>
   <div class="archive-label"><span class="status-dot"></span> УЧЕБНЫЙ АРХИВ</div>
-  <div class="header-user"><span id="account-name"></span><button class="logout-button" id="logout-button">Выйти</button><button class="help-button" id="help-button">Как пользоваться <span aria-hidden="true">↗</span></button></div>
+  <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false" aria-controls="header-panel">Меню</button>
+  <div class="header-user" id="header-panel"><span id="account-name"></span><button class="logout-button" id="logout-button">Выйти</button><button class="help-button" id="help-button">Как пользоваться <span aria-hidden="true">↗</span></button></div>
 </div></header>
 <main id="top">
   <section class="hero wrap" aria-labelledby="hero-title">
