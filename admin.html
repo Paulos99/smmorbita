@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#141414">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://storage.yandexcloud.net; font-src 'self'; worker-src 'self' blob:; connect-src 'self' https://bba2iub2khhe4eg3fagq.containers.yandexcloud.net https://storage.yandexcloud.net; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Кабинет преподавателя — СММ ШКОЛА</title>
+<link rel="icon" href="./assets/school.webp">
+<link rel="stylesheet" href="./assets/fonts.css">
+<link rel="stylesheet" href="./admin.css">
+</head>
+<body>
+<header class="header"><div class="header-inner">
+  <a class="brand" href="./"><img src="./assets/school.webp" alt=""><span>СММ ШКОЛА<small>КАБИНЕТ ПРЕПОДАВАТЕЛЯ</small></span></a>
+  <div class="header-side"><span class="who" id="who"></span><a class="ghost" href="./">К архиву</a><button class="text-link" id="logout" type="button">Выйти</button></div>
+</div></header>
+<div class="tape" aria-hidden="true"><span>ЧЕРНОВИК УЧЕНИКИ НЕ ВИДЯТ</span><b>✦</b><span>ПУБЛИКАЦИЯ СРАЗУ ПОПАДАЕТ В АРХИВ</span><b>✦</b><span>БОЛЬШИЕ ФАЙЛЫ ЗАГРУЖАЮТСЯ НАПРЯМУЮ</span></div>
+<main class="wrap" id="screen"><p class="lead">Открываем кабинет…</p></main>
+<dialog id="delete-dialog">
+  <div class="eyebrow">УДАЛЕНИЕ УРОКА</div>
+  <h2 id="delete-heading">Удалить урок?</h2>
+  <p id="delete-copy">Урок и все его файлы будут удалены. Вернуть их будет нельзя.</p>
+  <div class="dialog-actions"><button class="secondary" type="button" id="delete-cancel">Оставить</button><button class="danger" type="button" id="delete-confirm">Удалить навсегда</button></div>
+</dialog>
+<p class="sr-only" id="live" aria-live="polite"></p>
+<script type="module" src="./admin.js"></script>
+</body>
+</html>
