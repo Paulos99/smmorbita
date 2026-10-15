@@ -11,3 +11,54 @@
 /* Portrait documents remain readable at the same width as PDF previews. */
 .preview-dialog .gallery-image{width:100%;max-width:100%;max-height:none;height:auto}
 .preview-dialog .image-preview{width:100%;height:auto;max-height:none}
+
+/* Motion: transform and opacity only, 150–400ms. */
+@keyframes rise-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes fade-in{from{opacity:0}to{opacity:1}}
+@keyframes logo-in{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+@keyframes sk-pulse{from{opacity:.42}to{opacity:.92}}
+.pdf-stage{position:relative}
+.slide-frame{position:relative;display:grid;width:100%;min-height:180px;place-items:center}
+.slide-frame .gallery-image{grid-area:1/1;z-index:1}
+.slide-skeleton{position:absolute;inset:8px 0;border-radius:12px;background:#2a2a2a;z-index:0;pointer-events:none}
+.slide-skeleton.is-done{opacity:0}
+.gallery-viewer .pdf-stage{touch-action:pan-y}
+@media(prefers-reduced-motion:no-preference){
+  .brand img{animation:logo-in 400ms ease backwards}
+  .hero{animation:rise-in 360ms ease backwards}
+  .tape{animation:rise-in 340ms ease 40ms backwards}
+  .lesson-selector{animation:fade-in 300ms ease 80ms backwards}
+  .workspace{animation:fade-in 340ms ease 120ms backwards}
+  .section-swap{animation:fade-in 280ms ease}
+  dialog[open]{animation:rise-in 240ms ease}
+  .reveal{opacity:0;transform:translateY(12px)}
+  .reveal.in{opacity:1;transform:none;animation:rise-in 320ms ease backwards;animation-delay:calc(var(--i,0)*45ms)}
+  .viewer-loading{position:relative}
+  .viewer-loading::before{content:"";display:block;height:148px;border-radius:12px;margin:0 auto 14px;max-width:100%;background:#2a2a2a;animation:sk-pulse 400ms ease-in-out infinite alternate}
+  .slide-skeleton{opacity:.72;animation:sk-pulse 400ms ease-in-out infinite alternate}
+  .slide-skeleton.is-done{opacity:0;animation:none}
+  .slide-frame .gallery-image{opacity:0;transform:translateX(var(--slide-x,0));transition:opacity 260ms ease,transform 260ms ease}
+  .slide-frame .gallery-image.is-shown{opacity:1;transform:none}
+  .pdf-stage canvas{transition:opacity 220ms ease}
+  .pdf-stage canvas.is-fading{opacity:0}
+  .image-preview,.text-preview,.reader{animation:fade-in 280ms ease}
+}
+@media(prefers-reduced-motion:no-preference){
+  .lesson-tab,.file-card,.useful-card,.workbook-card,.button,.help-button,.pdf-controls button{transition:transform .18s ease}
+  .file-card::before,.useful-card::before,.workbook-card::before,.button::before,.help-button::before,.lesson-tab::before{transition:opacity .18s ease}
+  .lesson-tab,.file-card,.useful-card,.workbook-card,.button,.help-button{isolation:isolate;position:relative}
+  .lesson-tab::before,.file-card::before,.useful-card::before,.workbook-card::before,.button::before,.help-button::before{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:0 12px 28px #00000073;opacity:0;pointer-events:none;z-index:-1;transition:opacity .18s ease}
+  .lesson-tab:hover,.file-card:hover,.useful-card:hover,.workbook-card:hover,.button:hover:not(:disabled):not([aria-disabled=true]),.help-button:hover,.pdf-controls button:hover:not(:disabled){transform:translateY(-2px)}
+  .lesson-tab:hover::before,.file-card:hover::before,.useful-card:hover::before,.workbook-card:hover::before,.button:hover:not(:disabled)::before,.help-button:hover::before{opacity:1}
+  .lesson-tab:active,.file-card:active,.button:active:not(:disabled){transform:translateY(0)}
+  .brand img{transition:transform 250ms ease}
+  .brand:hover img{transform:rotate(-7deg) scale(1.04)}
+}
+@media(prefers-reduced-motion:no-preference) and (hover:none) and (pointer:coarse){
+  .lesson-tab:hover,.file-card:hover,.useful-card:hover,.workbook-card:hover,.button:hover,.help-button:hover,.pdf-controls button:hover,.brand:hover img{transform:none}
+  .lesson-tab:hover::before,.file-card:hover::before,.useful-card:hover::before,.workbook-card:hover::before,.button:hover::before,.help-button:hover::before{opacity:0}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}

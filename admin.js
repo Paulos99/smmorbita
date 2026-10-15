@@ -11,6 +11,18 @@ const localApi = () => location.hostname === 'localhost' || location.hostname ==
 const apiBase = () => localApi() ? '' : API;
 
 function say(text) { $('#live').textContent = text || ''; }
+function showToast(message, announce = true) {
+  if (!message) return;
+  if (announce) say(message);
+  for (const old of document.querySelectorAll('.toast')) old.remove();
+  const el = node('div', 'toast', message);
+  el.setAttribute('role', 'status');
+  document.body.append(el);
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('is-in')));
+  const close = () => { el.classList.remove('is-in'); setTimeout(() => el.remove(), 320); };
+  el.addEventListener('click', close);
+  setTimeout(close, 4200);
+}
 async function api(path, { method = 'GET', body } = {}) {
   const headers = new Headers();
   const token = getToken();
@@ -114,7 +126,7 @@ function renderList() {
   copy.append(node('div', 'eyebrow', 'ШТАБ / УРОКИ'), node('h1', '', 'Уроки школы'), node('p', 'lead', 'Создайте урок, приложите файлы и опубликуйте, когда всё готово. Черновик видите только вы.'));
   const add = node('button', 'primary', 'Новый урок'); add.type = 'button'; add.addEventListener('click', () => openEditor(blank()));
   head.append(copy, add); screen.append(head);
-  if (state.notice) { screen.append(node('div', 'notice', state.notice)); state.notice = ''; }
+  if (state.notice) { const text = state.notice; state.notice = ''; showToast(text); }
   if (!state.lessons.length) {
     const empty = node('div', 'empty'); empty.append(node('h2', '', 'Пока нет уроков'), node('p', '', 'Нажмите «Новый урок», чтобы собрать первое досье.')); screen.append(empty); return;
   }
@@ -323,7 +335,9 @@ function readForm(draft) {
 function showError(message) { const box = $('#save-error'); box.hidden = !message; box.textContent = message || ''; say(message || ''); }
 function showStatus(text, ratio) {
   const status = $('#save-status'); status.textContent = text || ''; say(text || '');
-  const bar = $('#save-bar'); bar.hidden = ratio == null; if (ratio != null) bar.firstChild.style.width = `${Math.max(4, Math.round(ratio * 100))}%`;
+  const bar = $('#save-bar'); bar.hidden = ratio == null;
+  if (ratio != null) bar.firstChild.style.transform = `scaleX(${Math.max(0.04, Math.min(1, ratio))})`;
+  if (ratio != null && ratio >= 1 && text && !text.startsWith('Сохраняем')) showToast(text, false);
 }
 async function save(status) {
   const draft = state.editing; if (!draft || state.busy) return;
@@ -575,7 +589,7 @@ function renderUsers() {
   });
   head.append(copy, add);
   screen.append(head);
-  if (state.notice) { screen.append(node('div', 'notice', state.notice)); state.notice = ''; }
+  if (state.notice) { const text = state.notice; state.notice = ''; showToast(text); }
   if (state.userForm) screen.append(userForm(state.userForm));
   if (!state.people.length) {
     const empty = node('div', 'empty');

@@ -6,6 +6,66 @@ const node = (tag, className, text) => {
   if (text != null) e.textContent = text; return e;
 };
 let lessons = [], current = 0, epoch = 0, pdfModule;
+const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+let revealObserver = null;
+if (!reduceMotion && typeof IntersectionObserver === 'function') {
+  revealObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.target.isConnected) { revealObserver.unobserve(entry.target); continue; }
+      if (!entry.isIntersecting) continue;
+      entry.target.classList.add('in');
+      revealObserver.unobserve(entry.target);
+    }
+  }, { rootMargin: '0px 0px -4% 0px', threshold: 0.12 });
+}
+function armReveals(root) {
+  if (!revealObserver || !root) return;
+  const seen = new Map();
+  for (const el of root.querySelectorAll('.lesson-tab, .file-card, .useful-card, .workbook-card')) {
+    if (el.classList.contains('reveal')) continue;
+    const parent = el.parentElement;
+    const i = seen.get(parent) || 0;
+    seen.set(parent, i + 1);
+    el.style.setProperty('--i', String(Math.min(i, 7)));
+    el.classList.add('reveal');
+    revealObserver.observe(el);
+  }
+}
+function releaseReveals(root) {
+  if (!revealObserver || !root) return;
+  for (const el of root.querySelectorAll('.reveal')) revealObserver.unobserve(el);
+}
+function swapSection(el) {
+  if (!el || reduceMotion) return;
+  el.classList.remove('section-swap');
+  void el.offsetWidth;
+  el.classList.add('section-swap');
+}
+function bindSwipe(target, onStep) {
+  if (!target) return;
+  let swipe = null;
+  target.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse') return;
+    swipe = { x: event.clientX, y: event.clientY, id: event.pointerId, lock: false };
+  });
+  target.addEventListener('pointermove', event => {
+    if (!swipe || event.pointerId !== swipe.id || swipe.lock) return;
+    const dx = event.clientX - swipe.x, dy = event.clientY - swipe.y;
+    if (Math.hypot(dx, dy) < 14) return;
+    if (Math.abs(dx) > Math.abs(dy) * 1.2) {
+      swipe.lock = true;
+      try { target.setPointerCapture?.(event.pointerId); } catch {}
+    } else swipe = null;
+  });
+  target.addEventListener('pointerup', event => {
+    if (!swipe || event.pointerId !== swipe.id) return;
+    const dx = event.clientX - swipe.x;
+    const locked = swipe.lock;
+    swipe = null;
+    if (locked && Math.abs(dx) >= 48) onStep(dx < 0 ? 1 : -1);
+  });
+  target.addEventListener('pointercancel', () => { swipe = null; });
+}
 const originalFetch = window.fetch.bind(window);
 window.fetch = async (input, init = {}) => { let url=String(input); if (url.startsWith('/api/')) { url=API+url; const h=new Headers(init.headers||{}); h.set('X-School-Token',getToken()); try{const r=localStorage.getItem('smm-role');if(r)h.set('X-School-Role',r);}catch{} init={...init,headers:h,credentials:'omit'}; } const response = await originalFetch(url, init); if (response.status === 401 && url.startsWith(API)) { clearToken(); location.replace('./login.html'); } return response; };
 $('#logout-button').addEventListener('click',async()=>{const button=$('#logout-button');button.disabled=true;try{const r=await fetch('/api/logout',{method:'POST'});clearToken();if(r.ok||true)location.replace('./login.html');else{button.disabled=false;setAnnouncement('Не удалось выйти. Попробуйте снова.');}}catch{button.disabled=false;setAnnouncement('Не удалось выйти. Проверьте соединение.');}});
@@ -47,6 +107,7 @@ function buildTabs() {
       if (next != null) { event.preventDefault(); selectLesson(next); $(`#tab-${lessons[next].id}`).focus(); }
     }); return button;
   }));
+  armReveals($('#lesson-tabs'));
 }
 function presentationPlaceholder(number) {
   const wrap = node('div'), cover = node('div', 'presentation-empty'), center = node('div');
@@ -77,8 +138,10 @@ function workbookPlaceholder() {
 }
 async function selectLesson(index, scroll = false) {
   if (index < 0 || index >= lessons.length) return;
+  const motionSwap = epoch > 0;
   current = index; const version = ++epoch, lesson = lessons[index];
   for (const viewer of inlineViewers.splice(0)) viewer.destroy();
+  releaseReveals($('#lesson'));
   for (const [i, button] of [...$('#lesson-tabs').children].entries()) { button.setAttribute('aria-selected', String(i === index)); button.tabIndex = i === index ? 0 : -1; }
   $('#lesson').setAttribute('aria-labelledby', `tab-${lesson.id}`);
   $('#lesson-code').textContent = `УЧЕБНАЯ МИССИЯ / ${lesson.number.padStart(3, '0')}`;
@@ -111,6 +174,8 @@ async function selectLesson(index, scroll = false) {
   }
   $('#lesson-position').textContent = `${lesson.number} / ${String(lessons.length).padStart(2, '0')}`;
   $('#previous-lesson').disabled = index === 0; $('#next-lesson').disabled = index === lessons.length - 1;
+  armReveals($('#lesson'));
+  if (motionSwap) swapSection($('#lesson'));
   try { localStorage.setItem('smm-school-lesson', lesson.id); } catch {}
   history.replaceState(null, '', `#lesson-${lesson.id}`);
   setAnnouncement(`Выбран ${lesson.title}. ${hasMaterials ? 'Материалы доступны.' : 'Материалы готовятся.'}`);
@@ -197,10 +262,12 @@ class PDFViewer {
     navigation.append(this.previous, this.label, this.next);
     this.zoom = node('select'); this.zoom.setAttribute('aria-label', 'Масштаб документа');
     for (const [value,text] of [['1','По ширине'],['1.25','125%'],['1.5','150%'],['2','200%']]) { const o = node('option', '', text); o.value = value; this.zoom.append(o); }
-    this.zoom.addEventListener('change', () => { this.scale = Number(this.zoom.value); this.render(); });
+    this.zoom.addEventListener('change', () => { this.scale = Number(this.zoom.value); this.stage.style.touchAction = this.scale > 1 ? 'auto' : 'pan-y'; this.render(); });
     const expand = node('button', '', '↗'); expand.type = 'button'; expand.setAttribute('aria-label', 'Открыть документ в большом окне'); expand.addEventListener('click', () => openPreview(this.resource));
     tools.append(this.zoom); if (container.closest('#preview-dialog') == null) tools.append(expand);
     this.controls.append(navigation, tools); this.root.append(this.stage, this.controls); container.append(this.root);
+    bindSwipe(this.stage, delta => { if (this.scale > 1) return; this.go(this.page + delta); });
+    this.stage.style.touchAction = 'pan-y';
     this.resize = new ResizeObserver(() => { if (this.pdf && !this.dead) { clearTimeout(this.resizeTimer); this.resizeTimer = setTimeout(() => this.render(), 120); } }); this.resize.observe(container);
   }
   async load() {
@@ -210,15 +277,22 @@ class PDFViewer {
       pdfjs.GlobalWorkerOptions.workerSrc = new URL('./assets/pdf.worker.mjs', import.meta.url).href;
       this.task = pdfjs.getDocument({url:safeUrl(this.resource.preview.url),standardFontDataUrl:new URL('./assets/standard_fonts/',import.meta.url).href,isEvalSupported:false,disableRange:true,disableStream:true,disableAutoFetch:false});
       this.pdf = await this.task.promise; if (this.dead || !this.alive()) return;
+      if (!reduceMotion) this.canvas.classList.add('is-fading');
       this.stage.replaceChildren(this.canvas); await this.render();
     } catch { if (!this.dead && this.alive()) previewError(this.container, 'Не удалось открыть документ. Попробуйте скачать исходный файл.', this.resource); }
   }
-  go(page) { if (!this.pdf || page < 1 || page > this.pdf.numPages || this.dead) return; this.page = page; this.render(); }
+  go(page) { if (!this.pdf || page < 1 || page > this.pdf.numPages || this.dead) return; this.page = page; this.fadePage = !reduceMotion; this.render(); }
   async render() {
     if (!this.pdf || this.dead || !this.alive()) return;
     const id = ++this.renderId; this.renderTask?.cancel();
     this.previous.disabled = this.page <= 1; this.next.disabled = this.page >= this.pdf.numPages;
     this.label.textContent = `${this.page} / ${this.pdf.numPages}`; this.canvas.setAttribute('aria-label', `${this.resource.title || 'Документ'} — страница ${this.page} из ${this.pdf.numPages}`);
+    const fade = this.fadePage; this.fadePage = false;
+    if (fade) {
+      this.canvas.classList.add('is-fading');
+      await new Promise(resolve => { this.fadeTimer = setTimeout(resolve, 200); });
+      if (id !== this.renderId || this.dead || !this.alive()) return;
+    }
     try {
       const page = await this.pdf.getPage(this.page); if (id !== this.renderId || this.dead || !this.alive()) return;
       const viewport = page.getViewport({scale:1}), width = Math.max(200, this.stage.clientWidth - (innerWidth < 760 ? 20 : 40));
@@ -226,22 +300,88 @@ class PDFViewer {
       const view = page.getViewport({scale:cssScale * ratio}); this.canvas.width = Math.round(view.width); this.canvas.height = Math.round(view.height);
       this.canvas.style.width = `${view.width / ratio}px`; this.canvas.style.maxWidth = this.scale > 1 ? 'none' : '100%';
       this.renderTask = page.render({canvasContext:this.canvas.getContext('2d'),viewport:view}); await this.renderTask.promise;
+      if (id === this.renderId && !this.dead) this.canvas.classList.remove('is-fading');
     } catch(error) { if (error?.name !== 'RenderingCancelledException' && id === this.renderId && !this.dead && this.alive()) previewError(this.container, 'Не удалось показать страницу. Исходный файл доступен для скачивания.', this.resource); }
   }
-  destroy() { this.dead = true; this.renderId++; clearTimeout(this.resizeTimer); this.resize.disconnect(); this.renderTask?.cancel(); this.task?.destroy().catch(() => {}); }
+  destroy() { this.dead = true; this.renderId++; clearTimeout(this.resizeTimer); clearTimeout(this.fadeTimer); this.resize.disconnect(); this.renderTask?.cancel(); this.task?.destroy().catch(() => {}); }
 }
 class ImageViewer {
-  constructor(container,resource,alive){
-    this.resource=resource;this.alive=alive;this.page=0;this.dead=false;const root=node('div','pdf-viewer gallery-viewer'),stage=node('div','pdf-stage'),controls=node('div','pdf-controls'),navigation=node('div'),tools=node('div');
-    this.image=node('img','gallery-image');this.image.alt=resource.title;this.image.onerror=()=>{if(!this.dead&&alive())previewError(container,'Не удалось открыть страницу. Исходный файл можно скачать.',resource);};stage.append(this.image);
-    this.previous=node('button','','←');this.previous.type='button';this.previous.setAttribute('aria-label','Предыдущая страница');this.next=node('button','','→');this.next.type='button';this.next.setAttribute('aria-label','Следующая страница');this.label=node('span');this.label.setAttribute('aria-live','polite');
-    this.previous.addEventListener('click',()=>this.go(this.page-1));this.next.addEventListener('click',()=>this.go(this.page+1));navigation.append(this.previous,this.label,this.next);
-    if(!container.closest('#preview-dialog')){const expand=node('button','','↗');expand.type='button';expand.setAttribute('aria-label','Открыть документ в большом окне');expand.addEventListener('click',()=>openPreview(resource));tools.append(expand);}
-    controls.append(navigation,tools);root.append(stage,controls);container.append(root);this.go(0);this.preload();
+  constructor(container, resource, alive) {
+    this.resource = resource; this.alive = alive; this.page = 0; this.dead = false; this.nav = 0;
+    const root = node('div', 'pdf-viewer gallery-viewer'), stage = node('div', 'pdf-stage'), controls = node('div', 'pdf-controls'), navigation = node('div'), tools = node('div');
+    this.frame = node('div', 'slide-frame');
+    this.skeleton = node('div', 'slide-skeleton');
+    this.skeleton.append(node('span', 'sr-only', 'Открываем страницу…'));
+    this.slots = [0, 1].map(() => { const img = node('img', 'gallery-image'); img.alt = ''; img.decoding = 'async'; img.setAttribute('aria-hidden', 'true'); return img; });
+    this.slot = 0;
+    this.frame.append(this.skeleton, ...this.slots);
+    stage.append(this.frame);
+    this.previous = node('button', '', '←'); this.previous.type = 'button'; this.previous.setAttribute('aria-label', 'Предыдущая страница');
+    this.next = node('button', '', '→'); this.next.type = 'button'; this.next.setAttribute('aria-label', 'Следующая страница');
+    this.label = node('span'); this.label.setAttribute('aria-live', 'polite');
+    this.previous.addEventListener('click', () => this.go(this.page - 1));
+    this.next.addEventListener('click', () => this.go(this.page + 1));
+    navigation.append(this.previous, this.label, this.next);
+    if (!container.closest('#preview-dialog')) {
+      const expand = node('button', '', '↗'); expand.type = 'button';
+      expand.setAttribute('aria-label', 'Открыть документ в большом окне');
+      expand.addEventListener('click', () => openPreview(resource));
+      tools.append(expand);
+    }
+    controls.append(navigation, tools); root.append(stage, controls); container.append(root);
+    bindSwipe(stage, delta => this.go(this.page + delta));
+    this.go(0); this.preload();
   }
-  preload(){const urls=this.resource.preview.urls.map(safeUrl);this.cache=[];let i=1;const next=()=>{if(this.dead||i>=urls.length)return;const im=new Image();im.decoding='async';this.cache.push(im);im.onload=im.onerror=next;im.src=urls[i++];};for(let k=0;k<4;k++)next();}
-  go(page){if(this.dead||!this.alive()||page<0||page>=this.resource.preview.urls.length)return;this.page=page;this.image.src=safeUrl(this.resource.preview.urls[page]);this.image.alt=`${this.resource.title}, страница ${page+1} из ${this.resource.preview.urls.length}`;this.label.textContent=`${page+1} / ${this.resource.preview.urls.length}`;this.previous.disabled=page===0;this.next.disabled=page===this.resource.preview.urls.length-1;}
-  destroy(){this.dead=true;this.image.onerror=null;this.image.removeAttribute('src');}
+  preload() {
+    const urls = this.resource.preview.urls.map(safeUrl); this.cache = []; let i = 1;
+    const next = () => { if (this.dead || i >= urls.length) return; const im = new Image(); im.decoding = 'async'; this.cache.push(im); im.onload = im.onerror = next; im.src = urls[i++]; };
+    for (let k = 0; k < 4; k++) next();
+  }
+  hideSkeleton() { this.skeleton.classList.add('is-done'); }
+  go(page) {
+    if (this.dead || !this.alive() || page < 0 || page >= this.resource.preview.urls.length) return;
+    const url = safeUrl(this.resource.preview.urls[page]);
+    if (!url) return;
+    const current = this.slots[this.slot];
+    if (page === this.page && current.getAttribute('src')) return;
+    const dir = page >= this.page ? 1 : -1;
+    const first = !current.getAttribute('src');
+    this.page = page;
+    const caption = `${this.resource.title}, страница ${page + 1} из ${this.resource.preview.urls.length}`;
+    this.label.textContent = `${page + 1} / ${this.resource.preview.urls.length}`;
+    this.previous.disabled = page === 0;
+    this.next.disabled = page === this.resource.preview.urls.length - 1;
+    const incoming = first || reduceMotion ? current : this.slots[1 - this.slot];
+    const outgoing = current;
+    const token = ++this.nav;
+    incoming.dataset.wave = String(token);
+    incoming.alt = caption;
+    incoming.onerror = () => { if (token === this.nav && !this.dead && this.alive()) previewError(container, 'Не удалось открыть страницу. Исходный файл можно скачать.', this.resource); };
+    const reveal = () => {
+      if (token !== this.nav || this.dead || incoming.dataset.shown === String(token)) return;
+      incoming.dataset.shown = String(token);
+      incoming.removeAttribute('aria-hidden');
+      if (!reduceMotion && incoming !== outgoing) {
+        outgoing.style.setProperty('--slide-x', `${-dir * 16}px`);
+        outgoing.classList.remove('is-shown');
+        outgoing.setAttribute('aria-hidden', 'true');
+        const stale = outgoing;
+        const clear = () => { if (stale.dataset.wave !== String(token)) return; stale.removeAttribute('src'); stale.alt = ''; };
+        stale.addEventListener('transitionend', event => { if (event.propertyName === 'opacity') clear(); }, { once: true });
+        setTimeout(clear, 420);
+        this.slot = this.slots.indexOf(incoming);
+      }
+      const show = () => { if (token === this.nav && !this.dead) { incoming.classList.add('is-shown'); this.hideSkeleton(); } };
+      if (reduceMotion) { show(); return; }
+      incoming.style.setProperty('--slide-x', first ? '0px' : `${dir * 16}px`);
+      incoming.classList.remove('is-shown');
+      requestAnimationFrame(() => requestAnimationFrame(show));
+    };
+    incoming.onload = () => { incoming.onload = null; reveal(); };
+    incoming.src = url;
+    if (incoming.complete && incoming.naturalWidth) reveal();
+  }
+  destroy() { this.dead = true; this.nav++; for (const img of this.slots) { img.onload = null; img.onerror = null; img.removeAttribute('src'); } }
 }
 $('#previous-lesson').addEventListener('click', () => selectLesson(current - 1, true));
 $('#next-lesson').addEventListener('click', () => selectLesson(current + 1, true));
@@ -255,7 +395,7 @@ try {
   const identity=await fetch('/api/session');if(!identity.ok)throw new Error();const account=(await identity.json()).user;const role=account.role==='teacher'?'Преподаватель':'Ученик';$('#account-name').textContent=account.name===role?role:`${account.name} · ${role}`;if(account.role==='teacher'){const cab=document.createElement('a');cab.className='help-button';cab.href='./admin.html';cab.textContent='Кабинет';$('#account-name').after(cab);}if(Array.isArray(account.roles)){const label=r=>r==='teacher'?'Преподаватель':r==='student'?'Ученик':r;const sel=document.createElement('select');sel.id='role-switch';sel.setAttribute('aria-label','Роль');sel.style.cssText='font-size:10px;background:#1e211c;color:#c4d5eb;border:1px solid #44443b;border-radius:6px;padding:4px';for(const r of account.roles){const o=document.createElement('option');o.value=r;o.textContent='Роль: '+label(r);o.selected=r===account.role;sel.append(o);}sel.addEventListener('change',async()=>{const res=await fetch('/api/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sel.value})});if(res.ok){try{localStorage.setItem('smm-role',sel.value);}catch{}location.reload();}});$('#account-name').after(sel);}
   const response = await fetch('/api/lessons'); if (!response.ok) throw new Error();
   const data = await response.json(); lessons = data.lessons;
-  if(data.shared?.length)$('#shared-files').replaceChildren(fileList(data.shared));
+  if(data.shared?.length){$('#shared-files').replaceChildren(fileList(data.shared));armReveals($('#shared-files'));}
   const useful=[
     ['Онлайн-подпись','Подписать документы удалённо','https://onedocs.ru/'],
     ['PDF-объединитель','Соединить несколько PDF-файлов в один','https://www.ilovepdf.com/ru/merge_pdf'],
@@ -270,6 +410,7 @@ try {
     ['LiveDune · Топ аккаунтов','Рейтинги и поиск аккаунтов для анализа','https://livedune.com/ru/top/?utm_source=coursevikkkast']
   ];
   $('#useful-links').replaceChildren(...useful.map(([title,description,url])=>{const link=node('a','useful-card');link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.append(node('h5','',title+' ↗'),node('p','',description));return link;}));
+  armReveals($('#useful-links'));
   const count=document.querySelector('#selector-count');if(count){const n=lessons.length;const w=n%10===1&&n%100!==11?'УРОК':n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?'УРОКА':'УРОКОВ';count.textContent=`${String(n).padStart(2,'0')} ${w} / ПЕРВЫЙ ЭТАП`;}
   if (!Array.isArray(lessons) || !lessons.length) throw new Error();
   buildTabs(); let saved; try { saved = localStorage.getItem('smm-school-lesson'); } catch {}

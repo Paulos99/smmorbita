@@ -74,7 +74,7 @@ textarea{min-height:84px;resize:vertical}
 .file-name{font-size:13px;color:#d9d9d0;overflow-wrap:anywhere}
 .warn{color:#ead9a2;font-size:13px;margin:8px 0}
 .progress{height:8px;background:#2c2c2c;border-radius:99px;overflow:hidden;margin:8px 0}
-.progress span{display:block;height:100%;background:var(--blue);width:0}
+.progress span{display:block;height:100%;width:100%;background:var(--blue);transform:scaleX(0);transform-origin:left center}
 .status{min-height:1.3em;color:#c9d7ea;font-size:13px;margin:8px 0 14px}
 .savebar{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 20px}
 .side{position:sticky;top:108px;background:#191919;border:1px solid #3a3a3a;border-radius:16px;padding:16px}
@@ -155,4 +155,32 @@ dialog p{color:#c8c8be}
   .choices{grid-template-columns:1fr}
   .user-search,.user-lesson{max-width:none;flex-basis:100%}
 }
-@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@keyframes rise-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes fade-in{from{opacity:0}to{opacity:1}}
+@keyframes logo-in{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+@keyframes sk-pulse{from{opacity:.45}to{opacity:1}}
+@media(prefers-reduced-motion:no-preference){
+  .header{animation:fade-in 280ms ease backwards}
+  .brand img{animation:logo-in 400ms ease backwards}
+  .tape{animation:rise-in 320ms ease 40ms backwards}
+  .wrap{animation:fade-in 340ms ease 80ms backwards}
+  dialog[open]{animation:rise-in 240ms ease}
+  .progress span{transition:transform 240ms ease}
+  .toast{transition:opacity 280ms ease,transform 280ms ease}
+}
+.toast{position:fixed;z-index:50;right:18px;bottom:18px;max-width:min(420px,calc(100% - 28px));border:1px solid #345979;background:#172433;color:#d5e8ff;border-radius:12px;padding:12px 14px;font-size:14px;box-shadow:0 12px 30px #0006;opacity:0;transform:translateY(10px);cursor:pointer}
+.toast.is-in{opacity:1;transform:none}
+@media(max-width:700px){.toast{left:14px;right:14px;bottom:14px;max-width:none}}
+@media(prefers-reduced-motion:no-preference){
+  .row,.primary,.secondary,.ghost,.tab,.mini,.actions button{transition:transform 180ms ease}
+  .row:hover,.primary:hover,.secondary:hover,.ghost:hover,.tab:hover,.mini:hover,.actions button:hover:not(:disabled){transform:translateY(-2px)}
+  .brand img{transition:transform 250ms ease}
+  .brand:hover img{transform:rotate(-7deg) scale(1.04)}
+}
+@media(prefers-reduced-motion:no-preference) and (hover:none) and (pointer:coarse){
+  .row:hover,.primary:hover,.secondary:hover,.ghost:hover,.tab:hover,.mini:hover,.actions button:hover,.brand:hover img{transform:none}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  .toast{opacity:1;transform:none}
+}
