@@ -101,4 +101,41 @@ dialog p{color:#c8c8be}
   .tape{font-size:9px;gap:10px}
   .who{display:none}
 }
+.tabs{display:flex;gap:8px;margin:0 0 18px}
+.tab{background:#242424;border:1px solid #4a4a4a;border-radius:999px;padding:10px 16px;font-size:13px;min-height:44px}
+.tab[aria-selected=true]{background:#335f95;border-color:#6599d9;color:#fff}
+.table-wrap{overflow-x:auto}
+.user-table{width:100%;border-collapse:separate;border-spacing:0 8px}
+.user-table th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#a3a399;text-align:left;padding:0 12px 4px;font-weight:650}
+.user-table td{background:#1c1c1c;border-top:1px solid #3c3c3c;border-bottom:1px solid #3c3c3c;padding:12px;vertical-align:middle;overflow-wrap:anywhere}
+.user-table td:first-child{border-left:1px solid #3c3c3c;border-radius:14px 0 0 14px}
+.user-table td:last-child{border-right:1px solid #3c3c3c;border-radius:0 14px 14px 0}
+.user-login{font-weight:650}
+.user-card{margin-bottom:16px}
+.lesson-picks{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.lesson-picks label{display:flex;gap:8px;align-items:flex-start;background:#161616;border:1px solid #3f3f3f;border-radius:12px;padding:10px 12px;font-size:13px;max-width:100%}
+.lesson-picks input{margin-top:3px;accent-color:var(--blue)}
+.password-once{display:flex;gap:8px;align-items:center}
+.password-once input{flex:1;min-width:0;font:600 18px/1.4 ui-monospace,SFMono-Regular,monospace;letter-spacing:.04em;background:#121212;border:1px solid #4a4a4a;border-radius:10px;padding:12px;color:#f7f6f1}
+.user-table .actions{flex-wrap:nowrap}
+.user-table .actions button{white-space:nowrap}
+@media(max-width:1040px){
+  .tabs{width:100%}
+  .tab{flex:1}
+  .table-wrap{overflow:visible}
+  .user-table,.user-table tbody,.user-table tr,.user-table td{display:block;width:auto}
+  .user-table{border-spacing:0}
+  .user-table thead{display:none}
+  .user-table tr{margin:0 0 12px;border:1px solid #3c3c3c;border-radius:16px;background:#1c1c1c;overflow:hidden}
+  .user-table td{border:0;border-bottom:1px solid #2e2e2e;border-radius:0;display:flex;justify-content:space-between;gap:12px;align-items:flex-start;background:transparent}
+  .user-table td:last-child{border-bottom:0}
+  .user-table td::before{content:attr(data-label);color:#9a9a92;font-size:12px;flex:0 0 34%}
+  .user-table td.actions-cell{display:block}
+  .user-table td.actions-cell::before{display:none}
+  .user-table .actions{max-width:none;flex-wrap:wrap}
+  .password-once{flex-direction:column;align-items:stretch}
+  .password-once .primary,.dialog-actions .primary,.dialog-actions .secondary,.dialog-actions .danger{width:100%}
+  .dialog-actions{flex-direction:column-reverse}
+  .choices{grid-template-columns:1fr}
+}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

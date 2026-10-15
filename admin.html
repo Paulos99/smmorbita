@@ -24,6 +24,19 @@
   <p id="delete-copy">Урок и все его файлы будут удалены. Вернуть их будет нельзя.</p>
   <div class="dialog-actions"><button class="secondary" type="button" id="delete-cancel">Оставить</button><button class="danger" type="button" id="delete-confirm">Удалить навсегда</button></div>
 </dialog>
+<dialog id="confirm-dialog">
+  <div class="eyebrow">ПОДТВЕРЖДЕНИЕ</div>
+  <h2 id="confirm-heading">Подтвердите действие</h2>
+  <p id="confirm-copy"></p>
+  <div class="dialog-actions"><button class="secondary" type="button" id="confirm-cancel">Отмена</button><button class="danger" type="button" id="confirm-ok">Подтвердить</button></div>
+</dialog>
+<dialog id="password-dialog">
+  <div class="eyebrow">ПАРОЛЬ ПОКАЗАН ОДИН РАЗ</div>
+  <h2 id="password-heading">Новый пароль</h2>
+  <p id="password-note">Скопируйте пароль и передайте его человеку. После закрытия окна он больше не появится.</p>
+  <div class="password-once"><input id="password-value" type="text" readonly aria-label="Новый пароль" autocomplete="off" spellcheck="false"><button class="primary" type="button" id="password-copy">Скопировать</button></div>
+  <div class="dialog-actions"><button class="secondary" type="button" id="password-close">Закрыть</button></div>
+</dialog>
 <p class="sr-only" id="live" aria-live="polite"></p>
 <script type="module" src="./admin.js"></script>
 </body>

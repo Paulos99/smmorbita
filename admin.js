@@ -5,7 +5,7 @@ import { pdfToWebpBlobs, textToWebpBlobs } from './previews.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const node = (tag, className, text) => { const el = document.createElement(tag); if (className) el.className = className; if (text != null) el.textContent = text; return el; };
 const screen = $('#screen');
-const state = { revision: 1, lessons: [], people: [], notice: '', editing: null, busy: false };
+const state = { revision: 1, lessons: [], people: [], notice: '', editing: null, busy: false, me: '', userForm: null };
 
 const localApi = () => location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 const apiBase = () => localApi() ? '' : API;
@@ -71,16 +71,44 @@ async function boot() {
   try {
     const session = await api('/api/session');
     const user = session.user;
+    state.me = String(user.login || '').toLowerCase();
     $('#who').textContent = user.name || '';
     if (user.role !== 'teacher') { denied(user.roles?.includes('teacher') ? 'Сейчас включена роль ученика. В архиве переключитесь на «Преподаватель» и откройте кабинет снова.' : 'Этот вход — ученический. Кабинет открывается только преподавателю.'); return; }
     const [catalog, accounts] = await Promise.all([api('/api/admin/lessons'), api('/api/admin/accounts')]);
     state.revision = catalog.revision; state.lessons = catalog.lessons; state.people = accounts.accounts;
-    renderList();
+    if (location.hash === '#users') await openUsers();
+    else renderList();
   } catch (error) { denied(error.message || 'Не удалось открыть кабинет.'); }
 }
 
+function tabs(active) {
+  const nav = node('div', 'tabs');
+  nav.setAttribute('role', 'tablist');
+  nav.setAttribute('aria-label', 'Разделы кабинета');
+  const lessons = node('button', 'tab', 'Уроки');
+  lessons.type = 'button';
+  lessons.setAttribute('role', 'tab');
+  lessons.setAttribute('aria-selected', active === 'lessons' ? 'true' : 'false');
+  lessons.addEventListener('click', () => { if (active !== 'lessons') showLessons(); });
+  const users = node('button', 'tab', 'Пользователи');
+  users.type = 'button';
+  users.id = 'tab-users';
+  users.setAttribute('role', 'tab');
+  users.setAttribute('aria-selected', active === 'users' ? 'true' : 'false');
+  users.addEventListener('click', () => { if (active !== 'users') openUsers(); });
+  nav.append(lessons, users);
+  return nav;
+}
+async function showLessons() {
+  state.editing = null;
+  state.userForm = null;
+  if (location.hash !== '#lessons') location.hash = 'lessons';
+  try { state.people = (await api('/api/admin/accounts')).accounts; } catch (error) { state.notice = error.message; }
+  renderList();
+}
 function renderList() {
   screen.replaceChildren();
+  screen.append(tabs('lessons'));
   const head = node('div', 'page-head');
   const copy = node('div');
   copy.append(node('div', 'eyebrow', 'ШТАБ / УРОКИ'), node('h1', '', 'Уроки школы'), node('p', 'lead', 'Создайте урок, приложите файлы и опубликуйте, когда всё готово. Черновик видите только вы.'));
@@ -153,6 +181,7 @@ function openEditor(draft) { state.editing = draft; renderEditor(); }
 function renderEditor() {
   const draft = state.editing;
   screen.replaceChildren();
+  screen.append(tabs('lessons'));
   const back = node('button', 'back', '← К списку уроков'); back.type = 'button'; back.addEventListener('click', () => { state.editing = null; renderList(); });
   const layout = node('div', 'editor');
   const form = node('form'); form.id = 'lesson-form'; form.noValidate = true;
@@ -196,7 +225,7 @@ function accessBlock(draft) {
     const text = node('span'); text.append(node('b', '', title), node('small', '', note)); label.append(input, text); choices.append(label);
   }
   const people = node('div', 'people'); people.id = 'people';
-  const students = state.people.filter(person => person.role !== 'teacher');
+  const students = state.people.filter(person => person.role !== 'teacher' && !person.roles?.includes('teacher') && !person.disabled);
   if (!students.length) people.append(node('p', 'hint', 'В списке пока нет учеников. Можно открыть урок всем.'));
   for (const person of students) {
     const label = node('label', 'person'); const input = node('input'); input.type = 'checkbox'; input.value = person.login; input.checked = draft.logins.has(person.login);
@@ -409,5 +438,313 @@ async function buildMaterials(draft, presentation) {
   return items.filter(item => item.download && !seen.has(item.download) && seen.add(item.download));
 }
 function extraIndex(download) { return Number(String(download || '').match(/\/extras\/(\d+)\./)?.[1] || 0); }
+
+async function openUsers() {
+  state.editing = null;
+  if (location.hash !== '#users') location.hash = 'users';
+  try { state.people = (await api('/api/admin/accounts')).accounts; }
+  catch (error) { state.notice = error.message; }
+  renderUsers();
+}
+function roleTitle(person) { return person.role === 'teacher' || person.roles?.includes('teacher') ? 'Преподаватель' : 'Ученик'; }
+function lessonTitle(id) {
+  const lesson = state.lessons.find(item => String(item.id) === String(id));
+  return lesson ? `${lesson.number} · ${lesson.title || 'Без названия'}` : `урок ${id}`;
+}
+function lessonsTitle(person) {
+  if (person.role === 'teacher' || person.roles?.includes('teacher')) return 'все уроки';
+  if (!person.lessons?.length) return 'все уроки';
+  return person.lessons.map(lessonTitle).join(', ');
+}
+function ask(title, copy, confirmLabel) {
+  const dialog = $('#confirm-dialog');
+  $('#confirm-heading').textContent = title;
+  $('#confirm-copy').textContent = copy;
+  const ok = $('#confirm-ok');
+  const cancel = $('#confirm-cancel');
+  ok.textContent = confirmLabel;
+  ok.className = confirmLabel === 'Удалить' || confirmLabel === 'Отключить' ? 'danger' : 'primary';
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      dialog.removeEventListener('close', onClose);
+      ok.removeEventListener('click', onOk);
+      cancel.removeEventListener('click', onCancel);
+      if (dialog.open) dialog.close();
+      resolve(value);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    const onClose = () => finish(false);
+    ok.addEventListener('click', onOk);
+    cancel.addEventListener('click', onCancel);
+    dialog.addEventListener('close', onClose);
+    dialog.showModal();
+  });
+}
+function showPassword(password, title, self) {
+  $('#password-heading').textContent = title || 'Новый пароль';
+  $('#password-note').textContent = self
+    ? 'Скопируйте пароль. Этот вход сейчас закроется — войдите заново. После закрытия окна пароль больше не появится.'
+    : 'Скопируйте пароль и передайте его человеку. После закрытия окна он больше не появится.';
+  const input = $('#password-value');
+  const copy = $('#password-copy');
+  const dialog = $('#password-dialog');
+  let current = password;
+  input.value = current;
+  copy.textContent = 'Скопировать';
+  const close = () => { current = ''; input.value = ''; if (dialog.open) dialog.close(); };
+  $('#password-close').onclick = close;
+  copy.onclick = async () => {
+    const value = current;
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      copy.textContent = 'Скопировано';
+      say('Пароль скопирован');
+    } catch {
+      input.focus();
+      input.select();
+      try { document.execCommand('copy'); copy.textContent = 'Скопировано'; say('Пароль скопирован'); }
+      catch { copy.textContent = 'Выделите и скопируйте'; }
+    }
+  };
+  dialog.addEventListener('close', () => { current = ''; input.value = ''; }, { once: true });
+  dialog.showModal();
+  input.focus();
+  input.select();
+}
+async function refreshPeople() {
+  state.people = (await api('/api/admin/accounts')).accounts;
+}
+function renderUsers() {
+  screen.replaceChildren();
+  screen.append(tabs('users'));
+  const head = node('div', 'page-head');
+  const copy = node('div');
+  copy.append(node('div', 'eyebrow', 'ШТАБ / ЛЮДИ'), node('h1', '', 'Пользователи'), node('p', 'lead', 'Добавьте ученика или преподавателя. Пароль создаётся сам и показывается один раз.'));
+  const add = node('button', 'primary', 'Добавить пользователя');
+  add.type = 'button';
+  add.addEventListener('click', () => {
+    state.userForm = { mode: 'create', login: '', name: '', role: 'student', lessons: new Set(), error: '' };
+    renderUsers();
+    $('#user-login')?.focus();
+  });
+  head.append(copy, add);
+  screen.append(head);
+  if (state.notice) { screen.append(node('div', 'notice', state.notice)); state.notice = ''; }
+  if (state.userForm) screen.append(userForm(state.userForm));
+  if (!state.people.length) {
+    const empty = node('div', 'empty');
+    empty.append(node('h2', '', 'Пока никого нет'), node('p', '', 'Нажмите «Добавить пользователя», чтобы выдать первый вход.'));
+    screen.append(empty);
+    return;
+  }
+  const wrap = node('div', 'table-wrap');
+  const table = node('table', 'user-table');
+  const caption = node('caption', 'sr-only', 'Учётные записи школы');
+  const thead = node('thead');
+  const headRow = node('tr');
+  for (const label of ['Логин', 'Имя', 'Роль', 'Уроки', 'Статус', 'Действия']) headRow.append(node('th', '', label));
+  for (const cell of headRow.children) cell.scope = 'col';
+  thead.append(headRow);
+  const tbody = node('tbody');
+  for (const person of state.people) tbody.append(userRow(person));
+  table.append(caption, thead, tbody);
+  wrap.append(table);
+  screen.append(wrap);
+}
+function userRow(person) {
+  const row = node('tr');
+  const cells = [
+    ['Логин', person.login, 'user-login'],
+    ['Имя', person.name, ''],
+    ['Роль', roleTitle(person), ''],
+    ['Уроки', lessonsTitle(person), 'lessons-cell'],
+    ['Статус', person.disabled ? 'Отключена' : 'Включена', ''],
+  ];
+  for (const [label, text, className] of cells) {
+    const cell = node('td', className, text);
+    cell.dataset.label = label;
+    row.append(cell);
+  }
+  const actions = node('td', 'actions-cell');
+  actions.dataset.label = 'Действия';
+  const bar = node('div', 'actions');
+  const edit = node('button', '', 'Изменить');
+  edit.type = 'button';
+  edit.addEventListener('click', () => {
+    state.userForm = {
+      mode: 'edit',
+      login: person.login,
+      name: person.name,
+      role: person.role === 'teacher' || person.roles?.includes('teacher') ? 'teacher' : 'student',
+      lessons: new Set(person.lessons || []),
+      error: '',
+    };
+    renderUsers();
+    $('#user-name')?.focus();
+  });
+  const reset = node('button', '', 'Новый пароль');
+  reset.type = 'button';
+  reset.addEventListener('click', () => resetUser(person));
+  const power = node('button', '', person.disabled ? 'Включить' : 'Отключить');
+  power.type = 'button';
+  power.addEventListener('click', () => toggleUser(person));
+  const remove = node('button', 'danger', 'Удалить');
+  remove.type = 'button';
+  remove.addEventListener('click', () => removeUser(person));
+  bar.append(edit, reset, power, remove);
+  actions.append(bar);
+  row.append(actions);
+  return row;
+}
+function userForm(draft) {
+  const form = node('form', 'card user-card');
+  form.id = 'user-form';
+  form.noValidate = true;
+  form.autocomplete = 'off';
+  form.append(node('h3', '', draft.mode === 'create' ? 'Новый пользователь' : `Правка · ${draft.login}`));
+  form.append(node('p', 'hint', 'Логин — почта или короткие латинские буквы. Пароль придумает сайт и покажет его один раз.'));
+  if (draft.mode === 'create') form.append(textField('Логин', 'login', draft.login, 'ivan или ivan@school.ru', 64));
+  form.append(textField('Имя', 'name', draft.name, 'Как обращаться к человеку', 80));
+  const choices = node('fieldset', 'choices');
+  choices.append(node('legend', '', 'РОЛЬ'));
+  for (const [value, title, note] of [['teacher', 'Преподаватель', 'Видит все уроки и этот кабинет'], ['student', 'Ученик', 'Видит только отмеченные уроки']]) {
+    const label = node('label', 'choice');
+    const input = node('input');
+    input.type = 'radio';
+    input.name = 'user-role';
+    input.value = value;
+    input.checked = draft.role === value;
+    const text = node('span');
+    text.append(node('b', '', title), node('small', '', note));
+    label.append(input, text);
+    choices.append(label);
+  }
+  form.append(choices);
+  form.append(node('p', 'hint', 'Отметьте уроки ученика. Если не отмечать ничего — ему видны все. Преподавателю открыты все уроки в любом случае.'));
+  const picks = node('div', 'lesson-picks');
+  const lessons = [...state.lessons].sort((a, b) => String(a.number).localeCompare(String(b.number), 'ru', { numeric: true }));
+  if (!lessons.length) picks.append(node('p', 'hint', 'В каталоге пока нет уроков. Ограничение можно поставить позже.'));
+  for (const lesson of lessons) {
+    const label = node('label');
+    const input = node('input');
+    input.type = 'checkbox';
+    input.name = 'lesson';
+    input.value = String(lesson.id);
+    input.checked = draft.lessons.has(String(lesson.id));
+    label.append(input, node('span', '', `${lesson.number} · ${lesson.title || 'Без названия'}`));
+    picks.append(label);
+  }
+  form.append(picks);
+  if (draft.error) { const error = node('div', 'error', draft.error); form.append(error); }
+  const bar = node('div', 'savebar');
+  const save = node('button', 'primary', draft.mode === 'create' ? 'Создать и показать пароль' : 'Сохранить');
+  save.type = 'submit';
+  const cancel = node('button', 'secondary', 'Отмена');
+  cancel.type = 'button';
+  cancel.addEventListener('click', () => { state.userForm = null; renderUsers(); });
+  bar.append(save, cancel);
+  form.append(bar);
+  form.addEventListener('submit', event => { event.preventDefault(); saveUser(); });
+  return form;
+}
+function textField(label, name, value, placeholder, max) {
+  const wrap = node('label', 'field');
+  wrap.append(node('span', '', label.toUpperCase()));
+  const input = node('input');
+  input.type = 'text';
+  input.name = name;
+  input.id = name === 'login' ? 'user-login' : 'user-name';
+  input.value = value || '';
+  input.placeholder = placeholder;
+  input.maxLength = max;
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  wrap.append(input);
+  return wrap;
+}
+function readUserForm() {
+  const form = $('#user-form');
+  const draft = state.userForm;
+  if (!form || !draft) return null;
+  if (draft.mode === 'create') draft.login = form.login.value.trim();
+  draft.name = form.name.value.trim();
+  draft.role = form.querySelector('input[name=user-role]:checked')?.value || 'student';
+  draft.lessons = new Set([...form.querySelectorAll('input[name=lesson]:checked')].map(input => input.value));
+  return draft;
+}
+async function saveUser() {
+  const draft = readUserForm();
+  if (!draft || state.busy) return;
+  if (draft.mode === 'create' && !draft.login) { draft.error = 'Напишите логин.'; renderUsers(); return; }
+  if (!draft.name) { draft.error = 'Напишите имя.'; renderUsers(); return; }
+  if (draft.mode === 'edit' && draft.login === state.me && draft.role !== 'teacher') { draft.error = 'Нельзя понизить свою роль.'; renderUsers(); return; }
+  setBusy(true);
+  try {
+    const lessons = [...draft.lessons];
+    if (draft.mode === 'create') {
+      const data = await api('/api/admin/accounts', { method: 'POST', body: { login: draft.login, name: draft.name, role: draft.role, lessons } });
+      state.userForm = null;
+      state.notice = `Пользователь ${data.account.name} создан.`;
+      showPassword(data.password, `Пароль для ${data.account.name}`, false);
+      await refreshPeople();
+    } else {
+      await api(`/api/admin/accounts/${encodeURIComponent(draft.login)}`, { method: 'PATCH', body: { name: draft.name, role: draft.role, lessons } });
+      state.userForm = null;
+      state.notice = 'Изменения сохранены.';
+      await refreshPeople();
+    }
+  } catch (error) {
+    if (state.userForm) state.userForm.error = error.message;
+    else state.notice = error.message;
+  } finally { setBusy(false); }
+  renderUsers();
+}
+async function resetUser(person) {
+  if (state.busy) return;
+  const ok = await ask('Новый пароль', `Старый пароль «${person.name}» перестанет работать, а текущий вход этого человека закроется.`, 'Сбросить пароль');
+  if (!ok) return;
+  setBusy(true);
+  try {
+    const data = await api(`/api/admin/accounts/${encodeURIComponent(person.login)}/reset-password`, { method: 'POST', body: {} });
+    const self = person.login === state.me;
+    showPassword(data.password, self ? 'Ваш новый пароль' : `Пароль для ${person.name}`, self);
+    if (!self) await refreshPeople();
+  } catch (error) { state.notice = error.message; }
+  finally { setBusy(false); }
+  if (person.login !== state.me) renderUsers();
+}
+async function toggleUser(person) {
+  if (state.busy) return;
+  const off = !person.disabled;
+  const ok = await ask(off ? 'Отключить вход?' : 'Включить вход?', off ? `${person.name} не сможет войти, пока вы снова не включите учётную запись. Текущий вход тоже закроется.` : `${person.name} снова сможет войти со своим паролем.`, off ? 'Отключить' : 'Включить');
+  if (!ok) return;
+  setBusy(true);
+  try {
+    await api(`/api/admin/accounts/${encodeURIComponent(person.login)}`, { method: 'PATCH', body: { disabled: off } });
+    await refreshPeople();
+    state.notice = off ? 'Вход отключён.' : 'Вход снова включён.';
+  } catch (error) { state.notice = error.message; }
+  finally { setBusy(false); }
+  renderUsers();
+}
+async function removeUser(person) {
+  if (state.busy) return;
+  const ok = await ask('Удалить пользователя?', `${person.name} (${person.login}) будет удалён. Вернуть учётную запись будет нельзя.`, 'Удалить');
+  if (!ok) return;
+  setBusy(true);
+  try {
+    await api(`/api/admin/accounts/${encodeURIComponent(person.login)}`, { method: 'DELETE' });
+    if (state.userForm?.login === person.login) state.userForm = null;
+    await refreshPeople();
+    state.notice = 'Пользователь удалён.';
+  } catch (error) { state.notice = error.message; }
+  finally { setBusy(false); }
+  renderUsers();
+}
 
 boot();
