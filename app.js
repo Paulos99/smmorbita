@@ -182,7 +182,7 @@ function syncScrollLock() {
 }
 const originalFetch = window.fetch.bind(window);
 window.fetch = async (input, init = {}) => { let url=String(input); if (url.startsWith('/api/')) { url=API+url; const h=new Headers(init.headers||{}); h.set('X-School-Token',getToken()); try{const r=localStorage.getItem('smm-role');if(r)h.set('X-School-Role',r);}catch{} init={...init,headers:h,credentials:'omit'}; } const response = await originalFetch(url, init); if (response.status === 401 && url.startsWith(API)) { clearToken(); location.replace('./login.html'); } return response; };
-$('#logout-button').addEventListener('click',async()=>{const button=$('#logout-button');button.disabled=true;try{const r=await fetch('/api/logout',{method:'POST'});clearToken();if(r.ok||true)location.replace('./login.html');else{button.disabled=false;setAnnouncement('Не удалось выйти. Попробуйте снова.');}}catch{button.disabled=false;setAnnouncement('Не удалось выйти. Проверьте соединение.');}});
+$('#logout-button').addEventListener('click',async()=>{const button=$('#logout-button');button.disabled=true;try{await Promise.race([fetch('/api/logout',{method:'POST'}),new Promise(r=>setTimeout(r,3000))]);}catch(e){console.warn('logout request failed',e);}clearToken();location.replace('./login.html');});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')fetch('/api/session').catch(()=>{});});
 setInterval(()=>fetch('/api/session').catch(()=>{}),60000);
 const menuToggle = $('#menu-toggle');
@@ -544,6 +544,7 @@ class ImageViewer {
 }
 $('#previous-lesson').addEventListener('click', () => selectLesson(current - 1, true));
 $('#next-lesson').addEventListener('click', () => selectLesson(current + 1, true));
+async function apiRetry(path){let last;for(let i=0;i<3;i++){const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),15000);try{const r=await fetch(path,{signal:ctl.signal});clearTimeout(t);if(r.status<500||i===2)return r;last=new Error(path+' HTTP '+r.status);}catch(e){clearTimeout(t);last=e;}await new Promise(r=>setTimeout(r,800*(i+1)));}throw last;}
 const sectionObserver = new IntersectionObserver(entries => {
   const visible = entries.filter(e => e.isIntersecting).sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top);
   if (!visible.length) return; const id = visible[0].target.id;
@@ -551,8 +552,8 @@ const sectionObserver = new IntersectionObserver(entries => {
 }, {rootMargin:'-95px 0px -55% 0px',threshold:0});
 for (const section of document.querySelectorAll('.resource-section')) sectionObserver.observe(section);
 try {
-  const identity=await fetch('/api/session');if(!identity.ok)throw new Error();const account=(await identity.json()).user;const role=account.role==='teacher'?'Преподаватель':'Ученик';$('#account-name').textContent=account.name===role?role:`${account.name} · ${role}`;if(account.role==='teacher'){const cab=document.createElement('a');cab.className='help-button';cab.href='./admin.html';cab.textContent='Кабинет';$('#account-name').after(cab);}if(Array.isArray(account.roles)){const label=r=>r==='teacher'?'Преподаватель':r==='student'?'Ученик':r;const sel=document.createElement('select');sel.id='role-switch';sel.setAttribute('aria-label','Роль');sel.className='role-switch';for(const r of account.roles){const o=document.createElement('option');o.value=r;o.textContent='Роль: '+label(r);o.selected=r===account.role;sel.append(o);}sel.addEventListener('change',async()=>{const res=await fetch('/api/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sel.value})});if(res.ok){try{localStorage.setItem('smm-role',sel.value);}catch{}location.reload();}});$('#account-name').after(sel);}
-  const response = await fetch('/api/lessons'); if (!response.ok) throw new Error();
+  const identity=await apiRetry('/api/session');if(!identity.ok)throw new Error('session HTTP '+identity.status);const account=(await identity.json()).user;const role=account.role==='teacher'?'Преподаватель':'Ученик';$('#account-name').textContent=account.name===role?role:`${account.name} · ${role}`;if(account.role==='teacher'){const cab=document.createElement('a');cab.className='help-button';cab.href='./admin.html';cab.textContent='Кабинет';$('#account-name').after(cab);}if(Array.isArray(account.roles)){const label=r=>r==='teacher'?'Преподаватель':r==='student'?'Ученик':r;const sel=document.createElement('select');sel.id='role-switch';sel.setAttribute('aria-label','Роль');sel.className='role-switch';for(const r of account.roles){const o=document.createElement('option');o.value=r;o.textContent='Роль: '+label(r);o.selected=r===account.role;sel.append(o);}sel.addEventListener('change',async()=>{const res=await fetch('/api/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sel.value})});if(res.ok){try{localStorage.setItem('smm-role',sel.value);}catch{}location.reload();}});$('#account-name').after(sel);}
+  const response = await apiRetry('/api/lessons'); if (!response.ok) throw new Error('lessons HTTP '+response.status);
   const data = await response.json(); lessons = data.lessons;
   if(data.shared?.length){$('#shared-files').replaceChildren(fileList(data.shared));armReveals($('#shared-files'));}
   const useful=[
@@ -575,6 +576,6 @@ try {
   buildTabs(); let saved; try { saved = localStorage.getItem('smm-school-lesson'); } catch {}
   const chosen = location.hash.match(/^#lesson-(.+)$/)?.[1] || saved;
   const index = lessons.findIndex(l => l.id === chosen); await selectLesson(index < 0 ? 0 : index);
-} catch { $('#lesson').replaceChildren(node('div', 'loading-error', 'Не удалось загрузить каталог уроков. Обновите страницу, чтобы повторить попытку.')); }
+} catch (e) { console.error('Catalog load failed:', e); if (!getToken()) { location.replace('./login.html'); } else { const box=node('div', 'loading-error', 'Не удалось загрузить каталог уроков. Проверьте соединение и попробуйте ещё раз. '); const again=node('button','button small','Повторить'); again.addEventListener('click',()=>location.reload()); box.append(again); $('#lesson').replaceChildren(box); } }
 
 const __loaded=Date.now();document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&Date.now()-__loaded>50*60000)location.reload();});
