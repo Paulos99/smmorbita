@@ -83,11 +83,10 @@ function bindSwipe(target, onStep) {
   if (!target) return;
   let swipe = null;
   target.addEventListener('pointerdown', event => {
-    if (event.pointerType === 'mouse' || target.dataset.zoomed === '1' || target.dataset.pinching === '1') return;
+    if (event.pointerType === 'mouse') return;
     swipe = { x: event.clientX, y: event.clientY, id: event.pointerId, lock: false };
   });
   target.addEventListener('pointermove', event => {
-    if (target.dataset.zoomed === '1' || target.dataset.pinching === '1') { swipe = null; return; }
     if (!swipe || event.pointerId !== swipe.id || swipe.lock) return;
     const dx = event.clientX - swipe.x, dy = event.clientY - swipe.y;
     if (Math.hypot(dx, dy) < 14) return;
@@ -97,7 +96,7 @@ function bindSwipe(target, onStep) {
     } else swipe = null;
   });
   target.addEventListener('pointerup', event => {
-    if (!swipe || event.pointerId !== swipe.id || target.dataset.pinching === '1') { swipe = null; return; }
+    if (!swipe || event.pointerId !== swipe.id) return;
     const dx = event.clientX - swipe.x;
     const locked = swipe.lock;
     swipe = null;
@@ -105,104 +104,11 @@ function bindSwipe(target, onStep) {
   });
   target.addEventListener('pointercancel', () => { swipe = null; });
 }
-
-function bindTap(target, onTap) {
-  if (!target) return;
-  let start = null;
-  target.addEventListener('pointerdown', event => {
-    if (event.target.closest('button, a, select, input, label')) return;
-    if (start) { start = null; return; }
-    start = { x: event.clientX, y: event.clientY, id: event.pointerId };
-  });
-  target.addEventListener('pointerup', event => {
-    if (!start || event.pointerId !== start.id) return;
-    const dx = event.clientX - start.x, dy = event.clientY - start.y;
-    start = null;
-    if (Math.hypot(dx, dy) < 12 && target.dataset.pinching !== '1') onTap();
-  });
-  target.addEventListener('pointercancel', () => { start = null; });
-}
-function bindPinch(target, getScale, setScale) {
-  if (!target) return;
-  const points = new Map();
-  let base = 0, origin = 1;
-  target.addEventListener('pointerdown', event => {
-    if (event.pointerType === 'mouse') return;
-    points.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (points.size >= 2) {
-      target.dataset.pinching = '1';
-      const [a, b] = [...points.values()];
-      base = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-      origin = getScale();
-    }
-  });
-  target.addEventListener('pointermove', event => {
-    if (!points.has(event.pointerId)) return;
-    points.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (points.size < 2 || base < 12) return;
-    const [a, b] = [...points.values()];
-    const dist = Math.hypot(a.x - b.x, a.y - b.y);
-    setScale(Math.min(3, Math.max(1, origin * (dist / base))));
-  });
-  const end = event => {
-    points.delete(event.pointerId);
-    if (points.size < 2) { base = 0; delete target.dataset.pinching; }
-  };
-  target.addEventListener('pointerup', end);
-  target.addEventListener('pointercancel', end);
-}
-function stageFullButton() {
-  const button = node('button', 'stage-full', 'Экран');
-  button.type = 'button';
-  button.dataset.full = '1';
-  button.setAttribute('aria-pressed', 'false');
-  button.setAttribute('aria-label', 'На весь экран');
-  return button;
-}
-function toggleStageFull(root) {
-  if (!root) return false;
-  const on = root.classList.toggle('is-stage-full');
-  const button = root.querySelector('[data-full]');
-  if (button) {
-    button.setAttribute('aria-pressed', String(on));
-    button.setAttribute('aria-label', on ? 'Свернуть' : 'На весь экран');
-    button.textContent = on ? 'Свернуть' : 'Экран';
-  }
-  syncScrollLock();
-  return on;
-}
-function viewerDownload(resource) {
-  const link = node('a', 'viewer-download', '↓');
-  link.setAttribute('aria-label', 'Скачать');
-  downloadLink(link, resource);
-  return link;
-}
-function syncScrollLock() {
-  document.body.classList.toggle('no-scroll', Boolean(document.querySelector('dialog[open], .pdf-viewer.is-stage-full')));
-}
 const originalFetch = window.fetch.bind(window);
 window.fetch = async (input, init = {}) => { let url=String(input); if (url.startsWith('/api/')) { url=API+url; const h=new Headers(init.headers||{}); h.set('X-School-Token',getToken()); try{const r=localStorage.getItem('smm-role');if(r)h.set('X-School-Role',r);}catch{} init={...init,headers:h,credentials:'omit'}; } const response = await originalFetch(url, init); if (response.status === 401 && url.startsWith(API)) { clearToken(); location.replace('./login.html'); } return response; };
 $('#logout-button').addEventListener('click',async()=>{const button=$('#logout-button');button.disabled=true;try{const r=await fetch('/api/logout',{method:'POST'});clearToken();if(r.ok||true)location.replace('./login.html');else{button.disabled=false;setAnnouncement('Не удалось выйти. Попробуйте снова.');}}catch{button.disabled=false;setAnnouncement('Не удалось выйти. Проверьте соединение.');}});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')fetch('/api/session').catch(()=>{});});
 setInterval(()=>fetch('/api/session').catch(()=>{}),60000);
-const menuToggle = $('#menu-toggle');
-if (menuToggle) {
-  const header = menuToggle.closest('.header');
-  const setMenu = open => { header.classList.toggle('is-menu-open', open); menuToggle.setAttribute('aria-expanded', String(open)); menuToggle.textContent = open ? 'Закрыть' : 'Меню'; };
-  menuToggle.addEventListener('click', () => setMenu(!header.classList.contains('is-menu-open')));
-  document.addEventListener('click', event => { if (!header.classList.contains('is-menu-open') || header.contains(event.target)) return; setMenu(false); });
-  const desktop = matchMedia('(min-width: 801px)');
-  desktop.addEventListener?.('change', event => { if (event.matches) setMenu(false); });
-  document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
-    if (header.classList.contains('is-menu-open')) { setMenu(false); menuToggle.focus(); return; }
-    const full = document.querySelector('.pdf-viewer.is-stage-full');
-    if (!full || full.closest('dialog[open]')) return;
-    event.preventDefault();
-    toggleStageFull(full);
-  });
-}
-
 const inlineViewers = [], modalViewers = [];
 const safeUrl = value => {
   if (!value) return null;
@@ -217,16 +123,16 @@ function downloadLink(anchor, resource) {
   else anchor.title = 'Файл появится после добавления материалов урока';
 }
 function setAnnouncement(text) { $('#announcement').textContent = text; }
-function closeDialog(dialog) { dialog.close(); }
+function closeDialog(dialog) { dialog.close(); document.body.classList.remove('no-scroll'); }
 for (const dialog of document.querySelectorAll('dialog')) {
   for (const button of dialog.querySelectorAll('[data-close]')) button.addEventListener('click', () => closeDialog(dialog));
   dialog.addEventListener('close', () => {
+    document.body.classList.remove('no-scroll');
     if (dialog.id === 'preview-dialog') { for (const viewer of modalViewers.splice(0)) viewer.destroy(); $('#preview-content').replaceChildren(); }
-    syncScrollLock();
   });
   dialog.addEventListener('click', event => { if (event.target === dialog) { const r = dialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closeDialog(dialog); } });
 }
-$('#help-button').addEventListener('click', () => { $('#help-dialog').showModal(); syncScrollLock(); });
+$('#help-button').addEventListener('click', () => { $('#help-dialog').showModal(); document.body.classList.add('no-scroll'); });
 function buildTabs() {
   $('#lesson-tabs').replaceChildren(...lessons.map((lesson, index) => {
     const button = node('button', 'lesson-tab'); button.id = `tab-${lesson.id}`;
@@ -357,7 +263,7 @@ async function openPreview(resource) {
   const dialog = $('#preview-dialog'), container = $('#preview-content');
   for (const viewer of modalViewers.splice(0)) viewer.destroy();
   container.replaceChildren(); $('#preview-title').textContent = resource.title || 'Материал урока'; downloadLink($('#preview-download'), resource);
-  dialog.showModal(); syncScrollLock();
+  dialog.showModal(); document.body.classList.add('no-scroll');
   if (resource.sections?.length) renderLecture(container, resource, 'preview-lecture');
   else await mountPreview(container, resource, modalViewers, () => dialog.open);
 }
@@ -394,18 +300,13 @@ class PDFViewer {
     navigation.append(this.previous, this.label, this.next);
     this.zoom = node('select'); this.zoom.setAttribute('aria-label', 'Масштаб документа');
     for (const [value,text] of [['1','По ширине'],['1.25','125%'],['1.5','150%'],['2','200%']]) { const o = node('option', '', text); o.value = value; this.zoom.append(o); }
-    this.zoom.addEventListener('change', () => { this.scale = Number(this.zoom.value); this.stage.dataset.zoomed = this.scale > 1 ? '1' : '0'; this.stage.style.touchAction = this.scale > 1 ? 'pan-x pan-y' : 'pan-y'; this.render(); });
+    this.zoom.addEventListener('change', () => { this.scale = Number(this.zoom.value); this.stage.style.touchAction = this.scale > 1 ? 'auto' : 'pan-y'; this.render(); });
     const expand = node('button', '', '↗'); expand.type = 'button'; expand.setAttribute('aria-label', 'Открыть документ в большом окне'); expand.addEventListener('click', () => openPreview(this.resource));
-    const full = stageFullButton();
-    full.addEventListener('click', () => { toggleStageFull(this.root); requestAnimationFrame(() => this.render()); });
-    tools.append(this.zoom, full);
-    if (container.closest('#preview-dialog') == null) tools.append(expand);
-    tools.append(viewerDownload(this.resource));
+    tools.append(this.zoom); if (container.closest('#preview-dialog') == null) tools.append(expand);
     this.controls.append(navigation, tools); this.root.append(this.stage, this.controls); container.append(this.root);
     bindSwipe(this.stage, delta => { if (this.scale > 1) return; this.go(this.page + delta); });
-    bindTap(this.stage, () => { if (this.stage.dataset.zoomed === '1') return; toggleStageFull(this.root); requestAnimationFrame(() => this.render()); });
     this.stage.style.touchAction = 'pan-y';
-    this.resize = new ResizeObserver(() => { if (this.pdf && !this.dead) { clearTimeout(this.resizeTimer); this.resizeTimer = setTimeout(() => this.render(), 120); } }); this.resize.observe(this.stage);
+    this.resize = new ResizeObserver(() => { if (this.pdf && !this.dead) { clearTimeout(this.resizeTimer); this.resizeTimer = setTimeout(() => this.render(), 120); } }); this.resize.observe(container);
   }
   async load() {
     try {
@@ -426,7 +327,7 @@ class PDFViewer {
     this.label.textContent = `${this.page} / ${this.pdf.numPages}`; this.canvas.setAttribute('aria-label', `${this.resource.title || 'Документ'} — страница ${this.page} из ${this.pdf.numPages}`);
     try {
       const page = await this.pdf.getPage(this.page); if (id !== this.renderId || this.dead || !this.alive()) return;
-      const viewport = page.getViewport({scale:1}), box = getComputedStyle(this.stage), pad = (parseFloat(box.paddingLeft) || 0) + (parseFloat(box.paddingRight) || 0), width = Math.max(160, this.stage.clientWidth - pad);
+      const viewport = page.getViewport({scale:1}), width = Math.max(200, this.stage.clientWidth - (innerWidth < 760 ? 20 : 40));
       const cssScale = width / viewport.width * this.scale, ratio = Math.min(devicePixelRatio || 1, 2);
       const view = page.getViewport({scale:cssScale * ratio}); this.canvas.width = Math.round(view.width); this.canvas.height = Math.round(view.height);
       this.canvas.style.width = `${view.width / ratio}px`; this.canvas.style.maxWidth = this.scale > 1 ? 'none' : '100%';
@@ -434,7 +335,7 @@ class PDFViewer {
       if (id === this.renderId && !this.dead) this.canvas.classList.remove('is-fading');
     } catch(error) { if (error?.name !== 'RenderingCancelledException' && id === this.renderId && !this.dead && this.alive()) previewError(this.container, 'Не удалось показать страницу. Исходный файл доступен для скачивания.', this.resource); }
   }
-  destroy() { this.dead = true; this.root?.classList.remove('is-stage-full'); this.renderId++; clearTimeout(this.resizeTimer); clearTimeout(this.fadeTimer); this.resize.disconnect(); this.renderTask?.cancel(); this.task?.destroy().catch(() => {}); syncScrollLock(); }
+  destroy() { this.dead = true; this.renderId++; clearTimeout(this.resizeTimer); clearTimeout(this.fadeTimer); this.resize.disconnect(); this.renderTask?.cancel(); this.task?.destroy().catch(() => {}); }
 }
 class ImageViewer {
   constructor(container, resource, alive) {
@@ -453,22 +354,14 @@ class ImageViewer {
     this.previous.addEventListener('click', () => this.go(this.page - 1));
     this.next.addEventListener('click', () => this.go(this.page + 1));
     navigation.append(this.previous, this.label, this.next);
-    this.zoomScale = 1;
-    const full = stageFullButton();
-    full.addEventListener('click', () => toggleStageFull(root));
-    tools.append(full);
     if (!container.closest('#preview-dialog')) {
       const expand = node('button', '', '↗'); expand.type = 'button';
       expand.setAttribute('aria-label', 'Открыть документ в большом окне');
       expand.addEventListener('click', () => openPreview(resource));
       tools.append(expand);
     }
-    tools.append(viewerDownload(resource));
     controls.append(navigation, tools); root.append(stage, controls); container.append(root);
-    bindSwipe(stage, delta => { if (stage.dataset.zoomed === '1') return; this.go(this.page + delta); });
-    bindTap(stage, () => { if (stage.dataset.zoomed === '1') return; toggleStageFull(root); });
-    bindPinch(stage, () => this.zoomScale, scale => this.applyZoom(scale));
-    stage.addEventListener('touchmove', event => { if (event.touches.length > 1) event.preventDefault(); }, { passive: false });
+    bindSwipe(stage, delta => this.go(this.page + delta));
     this.go(0); this.preload();
   }
   preload() {
@@ -483,8 +376,6 @@ class ImageViewer {
     if (!url) return;
     const current = this.slots[this.slot];
     if (page === this.page && current.getAttribute('src')) return;
-    this.applyZoom(1);
-    const dir = page >= this.page ? 1 : -1;
     const first = !current.getAttribute('src');
     this.page = page;
     const caption = `${this.resource.title}, страница ${page + 1} из ${this.resource.preview.urls.length}`;
@@ -528,19 +419,7 @@ class ImageViewer {
     incoming.src = url;
     if (incoming.complete && incoming.naturalWidth) reveal();
   }
-  applyZoom(scale) {
-    const next = Math.min(3, Math.max(1, Number(scale) || 1));
-    this.zoomScale = next;
-    const zoomed = next > 1.02;
-    this.frame.classList.toggle('is-zoomed', zoomed);
-    this.frame.style.setProperty('--zoom', String(zoomed ? next.toFixed(3) : 1));
-    const stage = this.frame.parentElement;
-    if (!stage) return;
-    stage.dataset.zoomed = zoomed ? '1' : '0';
-    stage.style.touchAction = zoomed ? 'pan-x pan-y' : 'pan-y';
-    if (!zoomed) stage.scrollTo?.(0, 0);
-  }
-  destroy() { this.dead = true; this.nav++; this.frame?.closest('.pdf-viewer')?.classList.remove('is-stage-full'); for (const img of this.slots) { img.onload = null; img.onerror = null; img.removeAttribute('src'); } syncScrollLock(); }
+  destroy() { this.dead = true; this.nav++; for (const img of this.slots) { img.onload = null; img.onerror = null; img.removeAttribute('src'); } }
 }
 $('#previous-lesson').addEventListener('click', () => selectLesson(current - 1, true));
 $('#next-lesson').addEventListener('click', () => selectLesson(current + 1, true));
@@ -551,7 +430,7 @@ const sectionObserver = new IntersectionObserver(entries => {
 }, {rootMargin:'-95px 0px -55% 0px',threshold:0});
 for (const section of document.querySelectorAll('.resource-section')) sectionObserver.observe(section);
 try {
-  const identity=await fetch('/api/session');if(!identity.ok)throw new Error();const account=(await identity.json()).user;const role=account.role==='teacher'?'Преподаватель':'Ученик';$('#account-name').textContent=account.name===role?role:`${account.name} · ${role}`;if(account.role==='teacher'){const cab=document.createElement('a');cab.className='help-button';cab.href='./admin.html';cab.textContent='Кабинет';$('#account-name').after(cab);}if(Array.isArray(account.roles)){const label=r=>r==='teacher'?'Преподаватель':r==='student'?'Ученик':r;const sel=document.createElement('select');sel.id='role-switch';sel.setAttribute('aria-label','Роль');sel.className='role-switch';for(const r of account.roles){const o=document.createElement('option');o.value=r;o.textContent='Роль: '+label(r);o.selected=r===account.role;sel.append(o);}sel.addEventListener('change',async()=>{const res=await fetch('/api/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sel.value})});if(res.ok){try{localStorage.setItem('smm-role',sel.value);}catch{}location.reload();}});$('#account-name').after(sel);}
+  const identity=await fetch('/api/session');if(!identity.ok)throw new Error();const account=(await identity.json()).user;const role=account.role==='teacher'?'Преподаватель':'Ученик';$('#account-name').textContent=account.name===role?role:`${account.name} · ${role}`;if(account.role==='teacher'){const cab=document.createElement('a');cab.className='help-button';cab.href='./admin.html';cab.textContent='Кабинет';$('#account-name').after(cab);}if(Array.isArray(account.roles)){const label=r=>r==='teacher'?'Преподаватель':r==='student'?'Ученик':r;const sel=document.createElement('select');sel.id='role-switch';sel.setAttribute('aria-label','Роль');sel.style.cssText='font-size:10px;background:#1e211c;color:#c4d5eb;border:1px solid #44443b;border-radius:6px;padding:4px';for(const r of account.roles){const o=document.createElement('option');o.value=r;o.textContent='Роль: '+label(r);o.selected=r===account.role;sel.append(o);}sel.addEventListener('change',async()=>{const res=await fetch('/api/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sel.value})});if(res.ok){try{localStorage.setItem('smm-role',sel.value);}catch{}location.reload();}});$('#account-name').after(sel);}
   const response = await fetch('/api/lessons'); if (!response.ok) throw new Error();
   const data = await response.json(); lessons = data.lessons;
   if(data.shared?.length){$('#shared-files').replaceChildren(fileList(data.shared));armReveals($('#shared-files'));}
