@@ -334,6 +334,15 @@ dialog{overflow:auto;max-width:min(1000px,calc(100% - 24px))}
   .preview-dialog[open]{overflow:hidden}
   .preview-dialog #preview-content:has(.pdf-viewer){overflow:hidden;display:flex;flex-direction:column}
   .preview-dialog .pdf-viewer{flex:1 1 auto;min-height:0;height:100%;display:flex;flex-direction:column}
-  .preview-dialog .pdf-stage,.preview-dialog .pdf-stage[data-zoomed="1"]{flex:1 1 auto;min-height:0;max-height:none;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-  .preview-dialog .pdf-stage[data-zoomed="1"]{display:block;place-items:start;align-items:start;justify-items:start;touch-action:pan-x pan-y}
+  .preview-dialog .pdf-stage{flex:1 1 auto;min-height:0;max-height:none;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  .preview-dialog .pdf-stage[data-zoomed="1"]{display:block;place-items:start;align-items:start;justify-items:start;touch-action:pan-x pan-y;flex:0 0 auto;min-height:0;overflow:auto;overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+}
+.pdf-controls .zoom-step,.pdf-controls .zoom-tools{display:none}
+@media(max-width:800px){
+  .pdf-stage[data-zoomed="1"],.preview-dialog .pdf-stage[data-zoomed="1"]{flex:0 0 auto;min-height:0;height:75vh;height:min(75dvh,75vh);max-height:75vh;max-height:min(75dvh,75vh)}
+  .preview-dialog .pdf-stage[data-zoomed="1"]{flex:1 1 0%;height:auto;min-height:0;max-height:75vh;max-height:min(75dvh,75vh)}
+  .pdf-viewer.is-stage-full .pdf-stage[data-zoomed="1"],.preview-dialog .pdf-viewer.is-stage-full .pdf-stage[data-zoomed="1"]{flex:1 1 auto;height:auto;max-height:none;min-height:0}
+  .pdf-controls .zoom-step{display:inline-flex;align-items:center;justify-content:center;width:36px;min-width:36px;height:36px;min-height:36px;padding:0;font-size:18px;line-height:1}
+  .pdf-controls .zoom-tools{display:inline-flex;align-items:center;gap:4px}
+  .pdf-controls select{max-width:6.2rem;min-height:36px;height:36px;font-size:14px;padding:0 4px}
 }

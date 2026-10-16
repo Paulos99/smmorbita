@@ -230,6 +230,40 @@ function armZoomPan(stage, onWheelZoom) {
   stage.addEventListener('touchend', liftPinch);
   stage.addEventListener('touchcancel', liftPinch);
 }
+const ZOOM_STOPS = [1, 1.25, 1.5, 2, 3];
+function stepZoom(scale, direction) {
+  const current = Number(scale) || 1;
+  if (direction > 0) return ZOOM_STOPS.find(value => value > current + 0.02) || ZOOM_STOPS[ZOOM_STOPS.length - 1];
+  return [...ZOOM_STOPS].reverse().find(value => value < current - 0.02) || ZOOM_STOPS[0];
+}
+function syncZoomSelect(select, scale) {
+  if (!select) return;
+  for (const option of [...select.options]) if (option.dataset.live) option.remove();
+  const presets = ['1', '1.25', '1.5', '2'];
+  const match = presets.find(value => Math.abs(Number(value) - scale) < 0.03);
+  if (match) { select.value = match; return; }
+  const option = node('option', '', `${Math.round(scale * 100)}%`);
+  option.value = String(Math.round(scale * 1000) / 1000);
+  option.dataset.live = '1';
+  select.append(option);
+  select.value = option.value;
+}
+function zoomSelect(onChange) {
+  const select = node('select');
+  select.setAttribute('aria-label', 'Масштаб документа');
+  for (const [value, text] of [['1', 'По ширине'], ['1.25', '125%'], ['1.5', '150%'], ['2', '200%']]) {
+    const option = node('option', '', text); option.value = value; select.append(option);
+  }
+  select.addEventListener('change', () => onChange(Number(select.value)));
+  return select;
+}
+function zoomStepButton(label, name, onClick) {
+  const button = node('button', 'zoom-step', label);
+  button.type = 'button';
+  button.setAttribute('aria-label', name);
+  button.addEventListener('click', onClick);
+  return button;
+}
 function stageFullButton() {
   const button = node('button', 'stage-full', 'Экран');
   button.type = 'button';
@@ -712,7 +746,7 @@ class PDFViewer {
     const expand = node('button', '', '↗'); expand.type = 'button'; expand.setAttribute('aria-label', 'Открыть документ в большом окне'); expand.addEventListener('click', () => openPreview(this.resource));
     const full = stageFullButton();
     full.addEventListener('click', () => { toggleStageFull(this.root); requestAnimationFrame(() => this.render()); });
-    tools.append(this.zoom, full);
+    tools.append(zoomStepButton('−', 'Уменьшить', () => this.setScale(stepZoom(this.scale, -1))), this.zoom, zoomStepButton('+', 'Увеличить', () => this.setScale(stepZoom(this.scale, 1))), full);
     if (container.closest('#preview-dialog') == null) tools.append(expand);
     tools.append(viewerDownload(this.resource));
     this.controls.append(navigation, tools); this.root.append(this.stage, this.controls); container.append(this.root);
@@ -779,17 +813,7 @@ class PDFViewer {
     clearTimeout(this.zoomTimer);
     this.zoomTimer = setTimeout(() => { if (!this.dead) this.render(); }, 70);
   }
-  syncZoomControl() {
-    for (const option of [...this.zoom.options]) if (option.dataset.live) option.remove();
-    const presets = ['1', '1.25', '1.5', '2'];
-    const match = presets.find(value => Math.abs(Number(value) - this.scale) < 0.03);
-    if (match) { this.zoom.value = match; return; }
-    const option = node('option', '', `${Math.round(this.scale * 100)}%`);
-    option.value = String(Math.round(this.scale * 1000) / 1000);
-    option.dataset.live = '1';
-    this.zoom.append(option);
-    this.zoom.value = option.value;
-  }
+  syncZoomControl() { syncZoomSelect(this.zoom, this.scale); }
   destroy() { this.dead = true; this.root?.classList.remove('is-stage-full'); this.renderId++; clearTimeout(this.resizeTimer); clearTimeout(this.fadeTimer); clearTimeout(this.zoomTimer); this.resize.disconnect(); this.renderTask?.cancel(); this.task?.destroy().catch(() => {}); syncScrollLock(); }
 }
 class ImageViewer {
@@ -810,9 +834,12 @@ class ImageViewer {
     this.next.addEventListener('click', () => this.go(this.page + 1));
     navigation.append(this.previous, this.label, this.next);
     this.zoomScale = 1;
+    this.zoom = zoomSelect(value => this.applyZoom(value));
+    const zoomTools = node('div', 'zoom-tools');
+    zoomTools.append(zoomStepButton('−', 'Уменьшить', () => this.applyZoom(stepZoom(this.zoomScale, -1))), this.zoom, zoomStepButton('+', 'Увеличить', () => this.applyZoom(stepZoom(this.zoomScale, 1))));
     const full = stageFullButton();
     full.addEventListener('click', () => toggleStageFull(root));
-    tools.append(full);
+    tools.append(zoomTools, full);
     if (!container.closest('#preview-dialog')) {
       const expand = node('button', '', '↗'); expand.type = 'button';
       expand.setAttribute('aria-label', 'Открыть документ в большом окне');
@@ -899,6 +926,7 @@ class ImageViewer {
     this.frame.style.maxWidth = zoomed ? 'none' : '';
     for (const img of this.slots) img.style.touchAction = zoomed ? 'pan-x pan-y' : '';
     markZoomed(stage, zoomed);
+    syncZoomSelect(this.zoom, next);
     if (zoomed) placeZoom(stage, anchor);
   }
   destroy() { this.dead = true; this.nav++; this.frame?.closest('.pdf-viewer')?.classList.remove('is-stage-full'); for (const img of this.slots) { img.onload = null; img.onerror = null; img.removeAttribute('src'); } syncScrollLock(); }
