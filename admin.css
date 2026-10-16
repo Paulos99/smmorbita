@@ -134,8 +134,6 @@ dialog p{color:#c8c8be}
 .lesson-picks input{margin-top:3px;accent-color:var(--blue)}
 .password-once{display:flex;gap:8px;align-items:center}
 .password-once input{flex:1;min-width:0;font:600 18px/1.4 ui-monospace,SFMono-Regular,monospace;letter-spacing:.04em;background:#121212;border:1px solid #4a4a4a;border-radius:10px;padding:12px;color:#f7f6f1}
-.user-table .actions{flex-wrap:wrap;max-width:260px}
-.user-table .actions button{white-space:nowrap}
 @media(max-width:1040px){
   .tabs{width:100%}
   .tab{flex:1}
@@ -143,13 +141,14 @@ dialog p{color:#c8c8be}
   .user-table,.user-table tbody,.user-table tr,.user-table td{display:block;width:auto}
   .user-table{border-spacing:0}
   .user-table thead{display:none}
-  .user-table tr{margin:0 0 12px;border:1px solid #3c3c3c;border-radius:16px;background:#1c1c1c;overflow:hidden}
+  .user-table tr{position:relative;margin:0 0 12px;border:1px solid #3c3c3c;border-radius:16px;background:#1c1c1c;overflow:hidden}
   .user-table td{border:0;border-bottom:1px solid #2e2e2e;border-radius:0;display:flex;justify-content:space-between;gap:12px;align-items:flex-start;background:transparent}
   .user-table td:last-child{border-bottom:0}
   .user-table td::before{content:attr(data-label);color:#9a9a92;font-size:12px;flex:0 0 34%}
-  .user-table td.actions-cell{display:block}
+  .user-table td:nth-child(1){padding-right:56px}
+  .user-table td:nth-last-child(2){border-bottom:0}
+  .user-table td.actions-cell{position:absolute;top:8px;right:8px;width:auto;min-height:0;padding:0;border:0;background:transparent;z-index:1}
   .user-table td.actions-cell::before{display:none}
-  .user-table .actions{max-width:none;flex-wrap:wrap}
   .password-once{flex-direction:column;align-items:stretch}
   .password-once .primary,.dialog-actions .primary,.dialog-actions .secondary,.dialog-actions .danger{width:100%}
   .dialog-actions{flex-direction:column-reverse}
@@ -211,8 +210,7 @@ select,input,textarea{max-width:100%}
   .wrap,.header-inner{width:calc(100% - 24px)}
   .user-table td{flex-direction:column;align-items:stretch;gap:4px}
   .user-table td::before{flex:none}
-  .user-table .actions{max-width:none}
-  .user-table .actions button{flex:1 1 calc(50% - 8px);min-height:44px}
+  .user-table td.actions-cell{flex-direction:row;align-items:center}
   dialog{width:calc(100% - 16px);max-width:calc(100% - 16px)}
   .password-once input{font-size:16px}
   .tabs{flex-wrap:wrap}
@@ -220,3 +218,44 @@ select,input,textarea{max-width:100%}
 }
 
 @media(max-width:900px){.tape{font-size:13px;gap:6px 12px}}
+@media(min-width:1041px){
+  .user-table{table-layout:fixed}
+  .user-table th:nth-child(1),.user-table td:nth-child(1){width:18%}
+  .user-table th:nth-child(2),.user-table td:nth-child(2){width:20%}
+  .user-table th:nth-child(3),.user-table td:nth-child(3){width:150px}
+  .user-table th:nth-child(5),.user-table td:nth-child(5){width:120px}
+  .user-table th:nth-child(6),.user-table td:nth-child(6){width:76px}
+  .user-table th:last-child{text-align:right}
+  .user-table td{height:56px;padding:0 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+  .user-table td.actions-cell{overflow:visible;text-overflow:clip;text-align:right}
+}
+.kebab{display:flex;justify-content:flex-end;align-items:center}
+.kebab-btn{width:40px;height:40px;padding:0;border-radius:12px;background:#242424;border:1px solid #4a4a4a;color:#f4f4ee;font-size:20px;line-height:0;letter-spacing:0;display:inline-flex;align-items:center;justify-content:center}
+.kebab-btn:hover{border-color:#8eb6e6;background:#2c2c2c}
+.kebab-btn[aria-expanded=true]{border-color:var(--blue);background:#1a2838;color:#fff}
+.kebab-menu{position:fixed;z-index:40;min-width:220px;margin:0;padding:6px;background:#1e1e1e;border:1px solid #4a4a46;border-radius:14px;box-shadow:0 16px 40px #00000073,0 2px 8px #00000059;display:flex;flex-direction:column;overscroll-behavior:contain;overflow:auto}
+.kebab-menu[hidden]{display:none !important}
+.kebab-title{display:none;margin:2px 12px 8px;font:650 15px/1.3 var(--heading);color:#f7f6f1}
+.kebab-menu button{appearance:none;width:100%;text-align:left;background:transparent;border:0;border-radius:10px;padding:10px 12px;min-height:40px;font-size:14px;color:#f4f4ee}
+.kebab-menu button:hover,.kebab-menu button:focus-visible{background:#2a2a2a}
+.kebab-menu button:active{background:#333}
+.kebab-sep{height:1px;margin:6px 8px;background:#3a3a3a;flex:0 0 auto}
+.kebab-menu .kebab-danger{color:#f0b2ae}
+.kebab-menu .kebab-danger:hover,.kebab-menu .kebab-danger:focus-visible{background:#3a2222;color:#ffd4d0}
+.kebab-backdrop{position:fixed;inset:0;z-index:39;background:#050505b8}
+body.menu-open{overflow:hidden}
+@media(max-width:640px){
+  .kebab-menu.is-sheet{left:max(8px,env(safe-area-inset-left));right:max(8px,env(safe-area-inset-right));bottom:calc(8px + env(safe-area-inset-bottom));top:auto;min-width:0;width:auto;max-height:min(70dvh,420px);border-radius:18px;padding:8px 8px 10px;box-shadow:0 12px 40px #00000080}
+  .kebab-menu.is-sheet .kebab-title{display:block}
+  .kebab-menu.is-sheet::before{content:"";display:block;width:36px;height:4px;border-radius:99px;background:#4a4a4a;margin:4px auto 6px;flex:0 0 auto}
+  .kebab-menu.is-sheet button{min-height:48px;font-size:16px;padding:12px 14px}
+  .kebab-btn{width:44px;height:44px}
+}
+@keyframes menu-pop{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes menu-pop-up{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes sheet-pop{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:no-preference){
+  .kebab-menu.is-open{animation:menu-pop 140ms ease}
+  .kebab-menu.is-up.is-open{animation-name:menu-pop-up}
+  .kebab-menu.is-sheet.is-open{animation-name:sheet-pop}
+}

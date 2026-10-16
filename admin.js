@@ -794,6 +794,7 @@ function rememberUserForm() {
   if (state.userForm && $('#user-form')) readUserForm();
 }
 function renderUsers() {
+  closeUserMenu(false);
   const queryFocused = document.activeElement?.id === 'user-query';
   const caret = queryFocused ? document.activeElement.selectionStart : null;
   const focusId = queryFocused ? '' : (document.activeElement?.id || '');
@@ -935,11 +936,231 @@ function lessonFilter() {
   block.append(select);
   return block;
 }
+let userMenuState = null;
+function closeUserMenu(restoreFocus) {
+  const current = userMenuState;
+  if (!current) return;
+  userMenuState = null;
+  current.menu.hidden = true;
+  current.menu.classList.remove('is-open', 'is-up', 'is-sheet');
+  current.menu.style.top = '';
+  current.menu.style.left = '';
+  current.menu.style.maxHeight = '';
+  current.button.setAttribute('aria-expanded', 'false');
+  current.backdrop.remove();
+  if (current.placeholder.isConnected) current.placeholder.replaceWith(current.menu);
+  else current.menu.remove();
+  document.removeEventListener('keydown', onUserMenuKey);
+  document.removeEventListener('pointerdown', onUserMenuPointer);
+  window.removeEventListener('resize', onUserMenuPlace);
+  document.removeEventListener('scroll', onUserMenuPlace, true);
+  document.body.classList.remove('menu-open');
+  if (restoreFocus) current.button.focus();
+}
+function onUserMenuPlace(event) {
+  if (!userMenuState) return;
+  if (event?.target instanceof Node && userMenuState.menu.contains(event.target)) return;
+  placeUserMenu(userMenuState.button, userMenuState.menu, userMenuState.backdrop);
+}
+function onUserMenuPointer(event) {
+  if (!userMenuState) return;
+  const target = event.target;
+  if (target instanceof Node && (userMenuState.button.contains(target) || userMenuState.menu.contains(target) || userMenuState.backdrop.contains(target))) return;
+  closeUserMenu(false);
+}
+function userMenuItems(menu) {
+  return [...menu.querySelectorAll('[role="menuitem"]')];
+}
+function focusNeighbor(from, backward) {
+  const list = [...document.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])')]
+    .filter(el => !el.closest('[hidden]') && el.tabIndex !== -1 && el.getClientRects().length > 0);
+  const index = list.indexOf(from);
+  if (index < 0) { from.focus(); return; }
+  const next = list[index + (backward ? -1 : 1)];
+  (next || from).focus();
+}
+function onUserMenuKey(event) {
+  if (!userMenuState) return;
+  const items = userMenuItems(userMenuState.menu);
+  if (!items.length) return;
+  const index = items.indexOf(document.activeElement);
+  const sheet = userMenuState.menu.classList.contains('is-sheet');
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeUserMenu(true);
+    return;
+  }
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    items[index < 0 ? 0 : (index + 1) % items.length].focus();
+    return;
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    items[index < 0 ? items.length - 1 : (index - 1 + items.length) % items.length].focus();
+    return;
+  }
+  if (event.key === 'Home') {
+    event.preventDefault();
+    items[0].focus();
+    return;
+  }
+  if (event.key === 'End') {
+    event.preventDefault();
+    items[items.length - 1].focus();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  event.preventDefault();
+  if (sheet) {
+    const next = event.shiftKey ? (index <= 0 ? items.length - 1 : index - 1) : (index + 1) % items.length;
+    items[next].focus();
+    return;
+  }
+  const button = userMenuState.button;
+  const backward = event.shiftKey;
+  closeUserMenu(false);
+  focusNeighbor(button, backward);
+}
+function placeUserMenu(button, menu, backdrop) {
+  const sheet = window.matchMedia('(max-width: 640px)').matches;
+  menu.classList.toggle('is-sheet', sheet);
+  menu.classList.remove('is-up');
+  menu.style.top = '';
+  menu.style.left = '';
+  menu.style.maxHeight = '';
+  document.body.classList.toggle('menu-open', sheet);
+  if (sheet) {
+    if (!backdrop.isConnected) menu.before(backdrop);
+    return;
+  }
+  backdrop.remove();
+  const margin = 8;
+  const gap = 6;
+  const rect = button.getBoundingClientRect();
+  if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) {
+    closeUserMenu(false);
+    return;
+  }
+  const width = menu.offsetWidth;
+  const natural = menu.scrollHeight;
+  const spaceBelow = window.innerHeight - rect.bottom - margin - gap;
+  const spaceAbove = rect.top - margin - gap;
+  const openUp = natural > spaceBelow && spaceAbove > spaceBelow;
+  const room = Math.max(120, Math.floor(openUp ? spaceAbove : spaceBelow));
+  menu.classList.toggle('is-up', openUp);
+  menu.style.maxHeight = `${room}px`;
+  const used = Math.min(natural, room);
+  let top = openUp ? rect.top - gap - used : rect.bottom + gap;
+  if (top < margin) top = margin;
+  if (top + used > window.innerHeight - margin) top = Math.max(margin, window.innerHeight - margin - used);
+  let left = rect.right - width;
+  if (left < margin) left = margin;
+  if (left + width > window.innerWidth - margin) left = Math.max(margin, window.innerWidth - margin - width);
+  menu.style.top = `${Math.round(top)}px`;
+  menu.style.left = `${Math.round(left)}px`;
+}
+function openUserMenu(button, menu, backdrop, which) {
+  closeUserMenu(false);
+  const placeholder = document.createComment('user-menu');
+  menu.before(placeholder);
+  document.body.append(menu);
+  menu.hidden = false;
+  menu.classList.add('is-open');
+  button.setAttribute('aria-expanded', 'true');
+  userMenuState = { button, menu, backdrop, placeholder };
+  placeUserMenu(button, menu, backdrop);
+  if (!userMenuState) return;
+  document.addEventListener('keydown', onUserMenuKey);
+  document.addEventListener('pointerdown', onUserMenuPointer);
+  window.addEventListener('resize', onUserMenuPlace);
+  document.addEventListener('scroll', onUserMenuPlace, true);
+  const items = userMenuItems(menu);
+  const focusItem = () => {
+    if (userMenuState?.menu !== menu) return;
+    items[which === 'last' ? items.length - 1 : 0]?.focus();
+  };
+  focusItem();
+  queueMicrotask(focusItem);
+}
+function userMenuId(login) {
+  return `user-menu-${encodeURIComponent(login).replace(/[^a-zA-Z0-9_-]/g, '')}`;
+}
+function userKebab(person) {
+  const wrap = node('div', 'kebab');
+  const button = node('button', 'kebab-btn', '⋯');
+  button.type = 'button';
+  const menu = node('div', 'kebab-menu');
+  const id = userMenuId(person.login);
+  menu.id = id;
+  menu.hidden = true;
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', `Действия для ${person.name}`);
+  button.setAttribute('aria-haspopup', 'menu');
+  button.setAttribute('aria-expanded', 'false');
+  button.setAttribute('aria-controls', id);
+  button.setAttribute('aria-label', `Действия для ${person.name}`);
+  const title = node('div', 'kebab-title', person.name);
+  title.id = `${id}-title`;
+  title.setAttribute('role', 'presentation');
+  menu.append(title);
+  const actions = [
+    ['Изменить', false, () => {
+      state.userForm = {
+        mode: 'edit',
+        login: person.login,
+        name: person.name,
+        role: personIsTeacher(person) ? 'teacher' : 'student',
+        lessons: new Set(person.lessons || []),
+        error: '',
+      };
+      renderUsers();
+      $('#user-name')?.focus();
+    }],
+    ['Новый пароль', false, () => resetUser(person)],
+    [person.disabled ? 'Включить' : 'Отключить', false, () => toggleUser(person)],
+    ['Удалить', true, () => removeUser(person)],
+  ];
+  for (const [label, danger, run] of actions) {
+    if (danger) {
+      const sep = node('div', 'kebab-sep');
+      sep.setAttribute('role', 'separator');
+      menu.append(sep);
+    }
+    const item = node('button', danger ? 'kebab-danger' : '', label);
+    item.type = 'button';
+    item.setAttribute('role', 'menuitem');
+    item.tabIndex = -1;
+    item.addEventListener('click', () => {
+      closeUserMenu(false);
+      run();
+    });
+    menu.append(item);
+  }
+  const backdrop = node('div', 'kebab-backdrop');
+  backdrop.setAttribute('aria-hidden', 'true');
+  backdrop.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    closeUserMenu(true);
+  });
+  button.addEventListener('click', () => {
+    if (userMenuState?.button === button) closeUserMenu(false);
+    else openUserMenu(button, menu, backdrop, 'first');
+  });
+  button.addEventListener('keydown', event => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    if (userMenuState?.button === button) return;
+    event.preventDefault();
+    openUserMenu(button, menu, backdrop, event.key === 'ArrowUp' ? 'last' : 'first');
+  });
+  wrap.append(button, menu);
+  return wrap;
+}
 function userRow(person) {
   const row = node('tr');
   const cells = [
     ['Логин', person.login, 'user-login'],
-    ['Имя', person.name, ''],
+    ['Имя', person.name, 'user-name'],
     ['Роль', roleTitle(person), 'nowrap'],
     ['Уроки', lessonsTitle(person), 'lessons-cell'],
     ['Статус', person.disabled ? 'Отключена' : 'Включена', 'nowrap'],
@@ -947,36 +1168,12 @@ function userRow(person) {
   for (const [label, text, className] of cells) {
     const cell = node('td', className, text);
     cell.dataset.label = label;
+    if (className === 'user-login' || className === 'user-name' || className === 'lessons-cell') cell.title = text;
     row.append(cell);
   }
   const actions = node('td', 'actions-cell');
   actions.dataset.label = 'Действия';
-  const bar = node('div', 'actions');
-  const edit = node('button', '', 'Изменить');
-  edit.type = 'button';
-  edit.addEventListener('click', () => {
-    state.userForm = {
-      mode: 'edit',
-      login: person.login,
-      name: person.name,
-      role: personIsTeacher(person) ? 'teacher' : 'student',
-      lessons: new Set(person.lessons || []),
-      error: '',
-    };
-    renderUsers();
-    $('#user-name')?.focus();
-  });
-  const reset = node('button', '', 'Новый пароль');
-  reset.type = 'button';
-  reset.addEventListener('click', () => resetUser(person));
-  const power = node('button', '', person.disabled ? 'Включить' : 'Отключить');
-  power.type = 'button';
-  power.addEventListener('click', () => toggleUser(person));
-  const remove = node('button', 'danger', 'Удалить');
-  remove.type = 'button';
-  remove.addEventListener('click', () => removeUser(person));
-  bar.append(edit, reset, power, remove);
-  actions.append(bar);
+  actions.append(userKebab(person));
   row.append(actions);
   return row;
 }
