@@ -83,12 +83,13 @@ function swapSection(el) {
 function bindSwipe(target, onStep) {
   if (!target) return;
   let swipe = null;
+  const panning = () => target.dataset.zoomed === '1' || target.dataset.pinching === '1';
   target.addEventListener('pointerdown', event => {
-    if (event.pointerType === 'mouse' || target.dataset.zoomed === '1' || target.dataset.pinching === '1') return;
+    if (event.pointerType === 'mouse' || panning()) return;
     swipe = { x: event.clientX, y: event.clientY, id: event.pointerId, lock: false };
   });
   target.addEventListener('pointermove', event => {
-    if (target.dataset.zoomed === '1' || target.dataset.pinching === '1') { swipe = null; return; }
+    if (panning()) { swipe = null; return; }
     if (!swipe || event.pointerId !== swipe.id || swipe.lock) return;
     const dx = event.clientX - swipe.x, dy = event.clientY - swipe.y;
     if (Math.hypot(dx, dy) < 14) return;
@@ -143,7 +144,7 @@ function bindPinch(target, getScale, setScale) {
     if (points.size < 2 || base < 12) return;
     const [a, b] = [...points.values()];
     const dist = Math.hypot(a.x - b.x, a.y - b.y);
-    setScale(Math.min(3, Math.max(1, origin * (dist / base))));
+    setScale(Math.min(3, Math.max(1, origin * (dist / base))), { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
   });
   const end = event => {
     points.delete(event.pointerId);
@@ -151,6 +152,83 @@ function bindPinch(target, getScale, setScale) {
   };
   target.addEventListener('pointerup', end);
   target.addEventListener('pointercancel', end);
+}
+function zoomAnchor(stage, point) {
+  const viewW = stage.clientWidth || 1, viewH = stage.clientHeight || 1, rect = stage.getBoundingClientRect();
+  const ox = Math.max(0, Math.min(viewW, point ? point.x - rect.left : viewW / 2));
+  const oy = Math.max(0, Math.min(viewH, point ? point.y - rect.top : viewH / 2));
+  return { cx: (stage.scrollLeft + ox) / Math.max(stage.scrollWidth, 1), cy: (stage.scrollTop + oy) / Math.max(stage.scrollHeight, 1), ox, oy };
+}
+function placeZoom(stage, anchor) {
+  const apply = () => {
+    if (!stage?.isConnected) return;
+    if (stage.dataset.zoomed !== '1') { stage.scrollTo?.(0, 0); return; }
+    const viewW = stage.clientWidth || 1, viewH = stage.clientHeight || 1;
+    if (!anchor) {
+      stage.scrollLeft = Math.max(0, (stage.scrollWidth - viewW) / 2);
+      stage.scrollTop = Math.max(0, (stage.scrollHeight - viewH) / 2);
+      return;
+    }
+    stage.scrollLeft = anchor.cx * stage.scrollWidth - Math.max(0, Math.min(viewW, anchor.ox));
+    stage.scrollTop = anchor.cy * stage.scrollHeight - Math.max(0, Math.min(viewH, anchor.oy));
+  };
+  apply();
+  requestAnimationFrame(apply);
+}
+function markZoomed(stage, zoomed) {
+  if (!stage) return;
+  stage.dataset.zoomed = zoomed ? '1' : '0';
+  stage.style.touchAction = zoomed ? 'pan-x pan-y' : 'pan-y';
+  stage.style.webkitOverflowScrolling = 'touch';
+  stage.style.placeItems = zoomed ? 'start' : '';
+  stage.style.alignItems = zoomed ? 'start' : '';
+  stage.style.justifyItems = zoomed ? 'start' : '';
+  stage.style.overflowX = zoomed ? 'auto' : '';
+  stage.style.overflowY = zoomed ? 'auto' : '';
+  if (!zoomed) stage.scrollTo?.(0, 0);
+}
+function armZoomPan(stage, onWheelZoom) {
+  if (!stage || stage.dataset.panArmed === '1') return;
+  stage.dataset.panArmed = '1';
+  let drag = null;
+  const onScrollbar = event => event.target === stage && (event.offsetX > stage.clientWidth || event.offsetY > stage.clientHeight);
+  stage.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'touch' || event.button !== 0 || stage.dataset.zoomed !== '1' || onScrollbar(event)) return;
+    if (event.target.closest('button, a, select, input, label')) return;
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, l: stage.scrollLeft, t: stage.scrollTop };
+    stage.classList.add('is-panning');
+    event.preventDefault();
+    try { stage.setPointerCapture?.(event.pointerId); } catch {}
+  });
+  stage.addEventListener('pointermove', event => {
+    if (!drag || event.pointerId !== drag.id) return;
+    stage.scrollLeft = drag.l - (event.clientX - drag.x);
+    stage.scrollTop = drag.t - (event.clientY - drag.y);
+  });
+  const endDrag = event => { if (!drag || event.pointerId !== drag.id) return; drag = null; stage.classList.remove('is-panning'); };
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+  stage.addEventListener('wheel', event => {
+    if (event.ctrlKey) {
+      event.preventDefault();
+      onWheelZoom?.(event.deltaY, { x: event.clientX, y: event.clientY });
+      return;
+    }
+    if (stage.dataset.zoomed !== '1') return;
+    let dx = event.deltaX, dy = event.deltaY;
+    if (event.shiftKey && dx === 0) { dx = dy; dy = 0; }
+    const maxX = Math.max(0, stage.scrollWidth - stage.clientWidth);
+    const maxY = Math.max(0, stage.scrollHeight - stage.clientHeight);
+    if (maxX <= 1 && maxY <= 1) return;
+    event.preventDefault();
+    stage.scrollLeft = Math.max(0, Math.min(maxX, stage.scrollLeft + dx));
+    stage.scrollTop = Math.max(0, Math.min(maxY, stage.scrollTop + dy));
+  }, { passive: false });
+  const blockPinch = event => { if (event.touches.length > 1) event.preventDefault(); };
+  stage.addEventListener('touchstart', event => { if (event.touches.length > 1) stage.addEventListener('touchmove', blockPinch, { passive: false }); }, { passive: true });
+  const liftPinch = () => stage.removeEventListener('touchmove', blockPinch);
+  stage.addEventListener('touchend', liftPinch);
+  stage.addEventListener('touchcancel', liftPinch);
 }
 function stageFullButton() {
   const button = node('button', 'stage-full', 'Экран');
@@ -620,7 +698,7 @@ function previewError(container, message, resource) {
 class PDFViewer {
   constructor(container, resource, alive) {
     this.container = container; this.resource = resource; this.alive = alive; this.page = 1; this.scale = 1; this.dead = false; this.renderId = 0;
-    this.root = node('div', 'pdf-viewer'); this.stage = node('div', 'pdf-stage'); this.stage.append(node('div', 'viewer-loading', 'Открываем документ…'));
+    this.root = node('div', 'pdf-viewer'); this.stage = node('div', 'pdf-stage'); this.sheet = node('div', 'pdf-sheet'); this.sheet.append(node('div', 'viewer-loading', 'Открываем документ…')); this.stage.append(this.sheet);
     this.canvas = node('canvas'); this.canvas.setAttribute('role', 'img');
     this.controls = node('div', 'pdf-controls'); const navigation = node('div'), tools = node('div');
     this.previous = node('button', '', '←'); this.previous.setAttribute('aria-label', 'Предыдущая страница');
@@ -630,7 +708,7 @@ class PDFViewer {
     navigation.append(this.previous, this.label, this.next);
     this.zoom = node('select'); this.zoom.setAttribute('aria-label', 'Масштаб документа');
     for (const [value,text] of [['1','По ширине'],['1.25','125%'],['1.5','150%'],['2','200%']]) { const o = node('option', '', text); o.value = value; this.zoom.append(o); }
-    this.zoom.addEventListener('change', () => { this.scale = Number(this.zoom.value); this.stage.dataset.zoomed = this.scale > 1 ? '1' : '0'; this.stage.style.touchAction = this.scale > 1 ? 'pan-x pan-y' : 'pan-y'; this.render(); });
+    this.zoom.addEventListener('change', () => this.setScale(Number(this.zoom.value)));
     const expand = node('button', '', '↗'); expand.type = 'button'; expand.setAttribute('aria-label', 'Открыть документ в большом окне'); expand.addEventListener('click', () => openPreview(this.resource));
     const full = stageFullButton();
     full.addEventListener('click', () => { toggleStageFull(this.root); requestAnimationFrame(() => this.render()); });
@@ -638,9 +716,11 @@ class PDFViewer {
     if (container.closest('#preview-dialog') == null) tools.append(expand);
     tools.append(viewerDownload(this.resource));
     this.controls.append(navigation, tools); this.root.append(this.stage, this.controls); container.append(this.root);
-    bindSwipe(this.stage, delta => { if (this.scale > 1) return; this.go(this.page + delta); });
+    bindSwipe(this.stage, delta => { if (this.scale > 1.02 || this.stage.dataset.zoomed === '1') return; this.go(this.page + delta); });
     bindTap(this.stage, () => { if (this.stage.dataset.zoomed === '1') return; toggleStageFull(this.root); requestAnimationFrame(() => this.render()); });
-    this.stage.style.touchAction = 'pan-y';
+    bindPinch(this.stage, () => this.scale, (scale, mid) => this.setScale(scale, mid));
+    armZoomPan(this.stage, (delta, point) => this.setScale(this.scale * (delta < 0 ? 1.08 : 0.92), point));
+    markZoomed(this.stage, false);
     this.resize = new ResizeObserver(() => { if (this.pdf && !this.dead) { clearTimeout(this.resizeTimer); this.resizeTimer = setTimeout(() => this.render(), 120); } }); this.resize.observe(this.stage);
   }
   async load() {
@@ -651,7 +731,7 @@ class PDFViewer {
       this.task = pdfjs.getDocument({url:safeUrl(this.resource.preview.url),standardFontDataUrl:new URL('./assets/standard_fonts/',import.meta.url).href,isEvalSupported:false,disableRange:true,disableStream:true,disableAutoFetch:false});
       this.pdf = await this.task.promise; if (this.dead || !this.alive()) return;
       if (!reduceMotion) this.canvas.classList.add('is-fading');
-      this.stage.replaceChildren(this.canvas); await this.render();
+      this.canvas.draggable = false; this.sheet.replaceChildren(this.canvas); this.stage.replaceChildren(this.sheet); await this.render();
     } catch { if (!this.dead && this.alive()) previewError(this.container, 'Не удалось открыть документ. Попробуйте скачать исходный файл.', this.resource); }
   }
   go(page) { if (!this.pdf || page < 1 || page > this.pdf.numPages || this.dead) return; this.page = page; this.render(); }
@@ -662,15 +742,55 @@ class PDFViewer {
     this.label.textContent = `${this.page} / ${this.pdf.numPages}`; this.canvas.setAttribute('aria-label', `${this.resource.title || 'Документ'} — страница ${this.page} из ${this.pdf.numPages}`);
     try {
       const page = await this.pdf.getPage(this.page); if (id !== this.renderId || this.dead || !this.alive()) return;
-      const viewport = page.getViewport({scale:1}), box = getComputedStyle(this.stage), pad = (parseFloat(box.paddingLeft) || 0) + (parseFloat(box.paddingRight) || 0), width = Math.max(160, this.stage.clientWidth - pad);
+      const viewport = page.getViewport({scale:1}), box = getComputedStyle(this.stage), pad = (parseFloat(box.paddingLeft) || 0) + (parseFloat(box.paddingRight) || 0);
+      const bar = this.scale > 1.02 ? Math.max(0, this.stage.offsetWidth - this.stage.clientWidth) : 0;
+      const width = Math.max(160, this.stage.clientWidth + bar - pad);
+      this.fitCssWidth = width; this.pageRatio = viewport.height / Math.max(1, viewport.width);
+      const anchor = this.scale > 1.02 ? zoomAnchor(this.stage) : null;
       const cssScale = width / viewport.width * this.scale, ratio = Math.min(devicePixelRatio || 1, 2);
       const view = page.getViewport({scale:cssScale * ratio}); this.canvas.width = Math.round(view.width); this.canvas.height = Math.round(view.height);
-      this.canvas.style.width = `${view.width / ratio}px`; this.canvas.style.maxWidth = this.scale > 1 ? 'none' : '100%';
+      const cssW = view.width / ratio;
+      this.canvas.style.width = `${cssW}px`; this.canvas.style.height = `${cssW * this.pageRatio}px`;
+      this.canvas.style.maxWidth = this.scale > 1.02 ? 'none' : '100%';
+      this.canvas.style.touchAction = this.scale > 1.02 ? 'pan-x pan-y' : '';
+      if (this.sheet) this.sheet.style.width = this.scale > 1.02 ? `${cssW}px` : '';
+      markZoomed(this.stage, this.scale > 1.02);
+      if (this.scale > 1.02) placeZoom(this.stage, anchor); else this.stage.scrollTo?.(0, 0);
       this.renderTask = page.render({canvasContext:this.canvas.getContext('2d'),viewport:view}); await this.renderTask.promise;
       if (id === this.renderId && !this.dead) this.canvas.classList.remove('is-fading');
     } catch(error) { if (error?.name !== 'RenderingCancelledException' && id === this.renderId && !this.dead && this.alive()) previewError(this.container, 'Не удалось показать страницу. Исходный файл доступен для скачивания.', this.resource); }
   }
-  destroy() { this.dead = true; this.root?.classList.remove('is-stage-full'); this.renderId++; clearTimeout(this.resizeTimer); clearTimeout(this.fadeTimer); this.resize.disconnect(); this.renderTask?.cancel(); this.task?.destroy().catch(() => {}); syncScrollLock(); }
+  setScale(next, point) {
+    const scale = Math.min(3, Math.max(1, Number(next) || 1));
+    const zoomed = scale > 1.02;
+    const anchor = point ? zoomAnchor(this.stage, point) : null;
+    this.scale = scale;
+    markZoomed(this.stage, zoomed);
+    this.syncZoomControl();
+    if (this.fitCssWidth && this.canvas?.isConnected) {
+      const cssW = this.fitCssWidth * scale;
+      this.canvas.style.width = `${cssW}px`;
+      this.canvas.style.height = `${cssW * (this.pageRatio || 1)}px`;
+      this.canvas.style.maxWidth = zoomed ? 'none' : '100%';
+      this.canvas.style.touchAction = zoomed ? 'pan-x pan-y' : '';
+      if (this.sheet) this.sheet.style.width = zoomed ? `${cssW}px` : '';
+      if (zoomed) placeZoom(this.stage, anchor); else this.stage.scrollTo?.(0, 0);
+    }
+    clearTimeout(this.zoomTimer);
+    this.zoomTimer = setTimeout(() => { if (!this.dead) this.render(); }, 70);
+  }
+  syncZoomControl() {
+    for (const option of [...this.zoom.options]) if (option.dataset.live) option.remove();
+    const presets = ['1', '1.25', '1.5', '2'];
+    const match = presets.find(value => Math.abs(Number(value) - this.scale) < 0.03);
+    if (match) { this.zoom.value = match; return; }
+    const option = node('option', '', `${Math.round(this.scale * 100)}%`);
+    option.value = String(Math.round(this.scale * 1000) / 1000);
+    option.dataset.live = '1';
+    this.zoom.append(option);
+    this.zoom.value = option.value;
+  }
+  destroy() { this.dead = true; this.root?.classList.remove('is-stage-full'); this.renderId++; clearTimeout(this.resizeTimer); clearTimeout(this.fadeTimer); clearTimeout(this.zoomTimer); this.resize.disconnect(); this.renderTask?.cancel(); this.task?.destroy().catch(() => {}); syncScrollLock(); }
 }
 class ImageViewer {
   constructor(container, resource, alive) {
@@ -679,7 +799,7 @@ class ImageViewer {
     this.frame = node('div', 'slide-frame');
     this.skeleton = node('div', 'slide-skeleton');
     this.skeleton.append(node('span', 'sr-only', 'Открываем страницу…'));
-    this.slots = [0, 1].map(() => { const img = node('img', 'gallery-image'); img.alt = ''; img.decoding = 'async'; img.setAttribute('aria-hidden', 'true'); return img; });
+    this.slots = [0, 1].map(() => { const img = node('img', 'gallery-image'); img.alt = ''; img.decoding = 'async'; img.draggable = false; img.setAttribute('aria-hidden', 'true'); return img; });
     this.slot = 0;
     this.frame.append(this.skeleton, ...this.slots);
     stage.append(this.frame);
@@ -703,8 +823,9 @@ class ImageViewer {
     controls.append(navigation, tools); root.append(stage, controls); container.append(root);
     bindSwipe(stage, delta => { if (stage.dataset.zoomed === '1') return; this.go(this.page + delta); });
     bindTap(stage, () => { if (stage.dataset.zoomed === '1') return; toggleStageFull(root); });
-    bindPinch(stage, () => this.zoomScale, scale => this.applyZoom(scale));
-    stage.addEventListener('touchmove', event => { if (event.touches.length > 1) event.preventDefault(); }, { passive: false });
+    bindPinch(stage, () => this.zoomScale, (scale, mid) => this.applyZoom(scale, mid));
+    armZoomPan(stage, (delta, point) => this.applyZoom(this.zoomScale * (delta < 0 ? 1.08 : 0.92), point));
+    markZoomed(stage, false);
     this.go(0); this.preload();
   }
   preload() {
@@ -764,17 +885,21 @@ class ImageViewer {
     incoming.src = url;
     if (incoming.complete && incoming.naturalWidth) reveal();
   }
-  applyZoom(scale) {
+  applyZoom(scale, point) {
     const next = Math.min(3, Math.max(1, Number(scale) || 1));
+    const stage = this.frame.parentElement;
+    const anchor = point && stage ? zoomAnchor(stage, point) : null;
     this.zoomScale = next;
     const zoomed = next > 1.02;
     this.frame.classList.toggle('is-zoomed', zoomed);
     this.frame.style.setProperty('--zoom', String(zoomed ? next.toFixed(3) : 1));
-    const stage = this.frame.parentElement;
     if (!stage) return;
-    stage.dataset.zoomed = zoomed ? '1' : '0';
-    stage.style.touchAction = zoomed ? 'pan-x pan-y' : 'pan-y';
-    if (!zoomed) stage.scrollTo?.(0, 0);
+    const base = stage.clientWidth || 0;
+    this.frame.style.width = zoomed && base ? `${Math.round(base * next)}px` : '';
+    this.frame.style.maxWidth = zoomed ? 'none' : '';
+    for (const img of this.slots) img.style.touchAction = zoomed ? 'pan-x pan-y' : '';
+    markZoomed(stage, zoomed);
+    if (zoomed) placeZoom(stage, anchor);
   }
   destroy() { this.dead = true; this.nav++; this.frame?.closest('.pdf-viewer')?.classList.remove('is-stage-full'); for (const img of this.slots) { img.onload = null; img.onerror = null; img.removeAttribute('src'); } syncScrollLock(); }
 }

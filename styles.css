@@ -319,3 +319,21 @@ dialog{overflow:auto;max-width:min(1000px,calc(100% - 24px))}
 @media(max-width:800px),(orientation:landscape) and (max-height:500px){
   .lesson-tab,.outline nav a{min-height:40px}
 }
+/* Zoomed PDF/page: the stage is the scrollport, so one finger can pan both ways. */
+.pdf-sheet{display:grid;place-items:center;width:max-content;min-width:100%;max-width:100%}
+.pdf-stage[data-zoomed="1"]{display:block;place-items:start;align-items:start;justify-items:start;min-width:0;overflow:auto;overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;overscroll-behavior:contain;scroll-behavior:auto;scrollbar-width:auto;max-height:min(72dvh,860px);cursor:grab;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.pdf-stage[data-zoomed="1"].is-panning,.pdf-stage[data-zoomed="1"].is-panning canvas,.pdf-stage[data-zoomed="1"].is-panning .slide-frame,.pdf-stage[data-zoomed="1"].is-panning .gallery-image{cursor:grabbing}
+.pdf-stage[data-zoomed="1"] .pdf-sheet{display:block;width:max-content;min-width:0;max-width:none;place-items:start;margin:0}
+.pdf-stage[data-zoomed="1"] canvas,.pdf-stage[data-zoomed="1"] .slide-frame,.pdf-stage[data-zoomed="1"] .slide-frame .gallery-image,.pdf-stage[data-zoomed="1"] .gallery-image{touch-action:pan-x pan-y;-webkit-user-drag:none;user-select:none;cursor:grab}
+.pdf-stage[data-zoomed="1"] canvas{max-width:none;height:auto}
+.pdf-stage[data-zoomed="1"] .slide-frame,.pdf-stage[data-zoomed="1"] .slide-frame.is-zoomed{max-width:none}
+.pdf-stage[data-zoomed="1"] .gallery-image,.pdf-stage[data-zoomed="1"] .slide-frame .gallery-image{width:100%;max-width:none;max-height:none;height:auto}
+.pdf-viewer.is-stage-full .pdf-stage[data-zoomed="1"]{display:block;place-items:start;align-items:start;justify-items:start;flex:1 1 auto;min-height:0;max-height:none;height:auto;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;overscroll-behavior:contain}
+.pdf-viewer.is-stage-full .pdf-stage[data-zoomed="1"] .gallery-image,.pdf-viewer.is-stage-full .pdf-stage[data-zoomed="1"] .slide-frame .gallery-image{width:100%;max-width:none;max-height:none;height:auto}
+@media(max-width:800px),(orientation:landscape) and (max-height:500px){
+  .preview-dialog[open]{overflow:hidden}
+  .preview-dialog #preview-content:has(.pdf-viewer){overflow:hidden;display:flex;flex-direction:column}
+  .preview-dialog .pdf-viewer{flex:1 1 auto;min-height:0;height:100%;display:flex;flex-direction:column}
+  .preview-dialog .pdf-stage,.preview-dialog .pdf-stage[data-zoomed="1"]{flex:1 1 auto;min-height:0;max-height:none;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  .preview-dialog .pdf-stage[data-zoomed="1"]{display:block;place-items:start;align-items:start;justify-items:start;touch-action:pan-x pan-y}
+}
