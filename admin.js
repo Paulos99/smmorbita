@@ -1158,19 +1158,30 @@ function userKebab(person) {
 }
 function userRow(person) {
   const row = node('tr');
-  const cells = [
-    ['Логин', person.login, 'user-login'],
-    ['Имя', person.name, 'user-name'],
-    ['Роль', roleTitle(person), 'nowrap'],
-    ['Уроки', lessonsTitle(person), 'lessons-cell'],
-    ['Статус', person.disabled ? 'Отключена' : 'Включена', 'nowrap'],
-  ];
-  for (const [label, text, className] of cells) {
-    const cell = node('td', className, text);
-    cell.dataset.label = label;
-    if (className === 'user-login' || className === 'user-name' || className === 'lessons-cell') cell.title = text;
-    row.append(cell);
-  }
+  const teacher = personIsTeacher(person);
+  const lessons = lessonsTitle(person);
+  const statusText = person.disabled ? 'Отключена' : 'Включена';
+  const loginCell = node('td', 'user-login');
+  loginCell.dataset.label = 'Логин';
+  loginCell.title = person.login;
+  loginCell.append(node('span', 'user-login-text', person.login));
+  const nameCell = node('td', 'user-name');
+  nameCell.dataset.label = 'Имя';
+  nameCell.title = person.name;
+  nameCell.append(node('span', 'user-name-text', person.name));
+  const sub = node('span', 'user-sub', `${person.name} · ${lessons}`);
+  sub.title = `${person.name} · ${lessons}`;
+  nameCell.append(sub);
+  const roleCell = node('td', teacher ? 'nowrap user-role is-teacher' : 'nowrap user-role', roleTitle(person));
+  roleCell.dataset.label = 'Роль';
+  const lessonsCell = node('td', 'lessons-cell', lessons);
+  lessonsCell.dataset.label = 'Уроки';
+  lessonsCell.title = lessons;
+  const statusCell = node('td', person.disabled ? 'nowrap user-status is-off' : 'nowrap user-status');
+  statusCell.dataset.label = 'Статус';
+  statusCell.title = statusText;
+  statusCell.append(node('span', 'status-word', statusText));
+  row.append(loginCell, nameCell, roleCell, lessonsCell, statusCell);
   const actions = node('td', 'actions-cell');
   actions.dataset.label = 'Действия';
   actions.append(userKebab(person));
