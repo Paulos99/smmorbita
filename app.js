@@ -269,6 +269,15 @@ function workbookPlaceholder() {
   copy.append(node('span', 'section-index', 'ПРОВЕРЬТЕ СЕБЯ ПЕРЕД ВЫХОДОМ В ПОЛЕ'), node('h4', '', 'От теории — к уверенности'), node('p', '', 'Методичка соберёт ключевые мысли урока и задания для самостоятельной проверки.'), node('span', 'state-tag', 'Методичка готовится'));
   const img = node('img'); img.src = './assets/target.webp'; img.alt = 'Точно в ЦА'; img.loading = 'lazy'; wrap.append(copy, img); return wrap;
 }
+function scrollChip(el) {
+  const scroller = el?.parentElement;
+  if (!el || !scroller || scroller.scrollWidth <= scroller.clientWidth + 2) return;
+  const start = el.offsetLeft, end = start + el.offsetWidth;
+  const viewStart = scroller.scrollLeft, viewEnd = viewStart + scroller.clientWidth;
+  if (start >= viewStart + 8 && end <= viewEnd - 8) return;
+  scroller.scrollTo({ left: Math.max(0, start - (scroller.clientWidth - el.offsetWidth) / 2), behavior: reduceMotion ? 'auto' : 'smooth' });
+}
+let lightbox;
 async function selectLesson(index, scroll = false) {
   if (index < 0 || index >= lessons.length) return;
   const motionSwap = epoch > 0;
@@ -277,6 +286,8 @@ async function selectLesson(index, scroll = false) {
   for (const viewer of inlineViewers.splice(0)) viewer.destroy();
   for (const id of ['presentation-view', 'lecture-view', 'materials-view', 'workbook-view']) releaseReveals(document.getElementById(id));
   for (const [i, button] of [...$('#lesson-tabs').children].entries()) { button.setAttribute('aria-selected', String(i === index)); button.tabIndex = i === index ? 0 : -1; }
+  scrollChip($(`#tab-${lesson.id}`));
+  lightbox?.close();
   $('#lesson').setAttribute('aria-labelledby', `tab-${lesson.id}`);
   $('#lesson-code').textContent = `УЧЕБНАЯ МИССИЯ / ${lesson.number.padStart(3, '0')}`;
   $('#lesson-title').textContent = lesson.title; $('#lesson-description').textContent = lesson.description || '';
@@ -304,7 +315,7 @@ async function selectLesson(index, scroll = false) {
   if (epoch !== version) return;
   if (lesson.videos?.length || lesson.pages?.length || lesson.materials?.length) $('#materials-view').replaceChildren(lessonMedia(lesson));
   if (lesson.workbook) {
-    $('#workbook-view').replaceChildren(fileList([lesson.workbook]));
+    $('#workbook-view').replaceChildren(fileList([lesson.workbook], lesson.id));
     if (lesson.workbook.checks?.length) renderChecks($('#workbook-view'), lesson.workbook.checks, lesson.id);
   }
   $('#lesson-position').textContent = `${lesson.number} / ${String(lessons.length).padStart(2, '0')}`;
@@ -331,15 +342,62 @@ function lessonMedia(lesson) {
     for (const page of lesson.pages) list.append(renderHtmlPage(page, lesson.id));
     wrap.append(list);
   }
-  if (lesson.materials?.length) wrap.append(fileList(lesson.materials));
+  if (lesson.materials?.length) wrap.append(fileList(lesson.materials, lesson.id));
   return wrap;
 }
-const EMBED_HOSTS = new Set(['www.youtube-nocookie.com', 'vk.com', 'rutube.ru']);
+const EMBED_HOSTS = new Set(['www.youtube-nocookie.com', 'vk.com', 'rutube.ru', 'player.vimeo.com', 'www.loom.com', 'drive.google.com', 'kinescope.io', 'ok.ru', 't.me', 'dzen.ru']);
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif']);
 function safeEmbed(value) {
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' && EMBED_HOSTS.has(url.hostname) ? url.href : null;
+    if (url.protocol !== 'https:' || url.username || url.password || !EMBED_HOSTS.has(url.hostname)) return null;
+    const path = url.pathname.replace(/\/$/, '');
+    const host = url.hostname;
+    if (host === 'www.youtube-nocookie.com' && /^\/embed\/[\w-]{6,20}$/.test(path)) return `https://www.youtube-nocookie.com${path}`;
+    if (host === 'vk.com' && path === '/video_ext.php') {
+      const oid = url.searchParams.get('oid') || '', id = url.searchParams.get('id') || '';
+      if (!/^-?\d{1,15}$/.test(oid) || !/^\d{1,15}$/.test(id)) return null;
+      return `https://vk.com/video_ext.php?oid=${oid}&id=${id}&hd=2`;
+    }
+    if (host === 'rutube.ru' && /^\/play\/embed\/[a-f0-9]{32}$/i.test(path)) return `https://rutube.ru${path}`;
+    if (host === 'player.vimeo.com' && /^\/video\/\d{6,12}$/.test(path)) {
+      const hash = url.searchParams.get('h') || '';
+      const id = path.split('/')[2];
+      return /^[a-zA-Z0-9]{4,32}$/.test(hash) ? `https://player.vimeo.com/video/${id}?h=${hash}` : `https://player.vimeo.com/video/${id}`;
+    }
+    if (host === 'www.loom.com' && /^\/embed\/[a-f0-9]{32}$/i.test(path)) return `https://www.loom.com${path}`;
+    if (host === 'drive.google.com' && /^\/file\/d\/[a-zA-Z0-9_-]{10,80}\/preview$/.test(path)) return `https://drive.google.com${path}`;
+    if (host === 'kinescope.io' && /^\/embed\/[A-Za-z0-9]{6,40}$/.test(path)) return `https://kinescope.io${path}`;
+    if (host === 'ok.ru' && /^\/videoembed\/\d{5,20}$/.test(path)) return `https://ok.ru${path}`;
+    if (host === 't.me' && /^\/[A-Za-z][A-Za-z0-9_]{3,63}\/\d{1,12}$/.test(path)) return `https://t.me${path}?embed=1`;
+    if (host === 'dzen.ru' && /^\/embed\/[A-Za-z0-9_-]{6,80}$/.test(path)) return `https://dzen.ru${path}`;
+    return null;
   } catch { return null; }
+}
+function safeExternal(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password) return null;
+    url.hash = '';
+    return url.href;
+  } catch { return null; }
+}
+function fileExt(resource) {
+  const format = String(resource?.format || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (format === 'jpeg') return 'jpg';
+  if (format) return format;
+  const name = String(resource?.filename || resource?.download || '').split('?')[0];
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  return ext === 'jpeg' ? 'jpg' : ext;
+}
+function isImageResource(resource) {
+  return IMAGE_EXT.has(fileExt(resource));
+}
+function imageViewUrl(resource) {
+  const preview = resource?.preview;
+  if (preview?.type === 'image') return safeUrl(preview.url);
+  if (preview?.type === 'images' && preview.urls?.length === 1) return safeUrl(preview.urls[0]);
+  return safeUrl(resource?.url) || safeUrl(resource?.download);
 }
 async function refreshMedia(resource, lessonId, attachment) {
   if (!resource?.key || !lessonId) return null;
@@ -360,15 +418,21 @@ function bindFreshLink(anchor, resource, lessonId, attachment) {
     else location.assign(url);
   });
 }
+function mediaChip(tag, text, label) {
+  const el = node(tag, 'media-chip', text);
+  if (label) el.setAttribute('aria-label', label);
+  return el;
+}
 function mediaActions(stage, resource, lessonId) {
   const bar = node('div', 'media-actions');
   const full = stageFullButton();
+  full.classList.add('media-chip');
   full.addEventListener('click', () => toggleStageFull(stage));
-  const open = node('a', 'button small', 'Открыть в новой вкладке');
+  const open = mediaChip('a', '↗ Вкладка', 'Открыть в новой вкладке');
   open.target = '_blank'; open.rel = 'noopener noreferrer';
   const view = safeUrl(resource.url);
   if (view) open.href = view; else open.setAttribute('aria-disabled', 'true');
-  const download = node('a', 'button small', '↓ Скачать');
+  const download = mediaChip('a', '↓ Скачать', 'Скачать');
   downloadLink(download, resource);
   bindFreshLink(open, resource, lessonId, false);
   bindFreshLink(download, resource, lessonId, true);
@@ -378,7 +442,7 @@ function mediaActions(stage, resource, lessonId) {
 function renderHtmlPage(resource, lessonId) {
   const card = node('article', 'media-card');
   card.append(node('h4', '', resource.title || 'Страница урока'));
-  const stage = node('div', 'media-stage');
+  const stage = node('div', 'media-stage media-html');
   const frame = node('iframe', 'lesson-html');
   // allow-scripts only: the page must not become same-origin and read the school token.
   frame.setAttribute('sandbox', 'allow-scripts');
@@ -401,7 +465,7 @@ function renderHtmlPage(resource, lessonId) {
 function renderVideo(resource, lessonId) {
   const card = node('article', 'media-card');
   card.append(node('h4', '', resource.title || 'Видео урока'));
-  const stage = node('div', 'media-stage');
+  const stage = node('div', 'media-stage media-video');
   const video = node('video');
   video.controls = true; video.playsInline = true; video.preload = 'metadata';
   video.setAttribute('playsinline', ''); video.setAttribute('preload', 'metadata');
@@ -430,35 +494,69 @@ function renderVideo(resource, lessonId) {
   };
   arm();
   video.addEventListener('error', () => { if ((video.currentTime || 0) > 0) swap(); });
+  video.addEventListener('loadedmetadata', () => {
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) return;
+    video.style.aspectRatio = `${w} / ${h}`;
+    stage.classList.toggle('is-portrait', h > w);
+  });
   stage.append(video, mediaActions(stage, resource, lessonId));
   card.append(stage);
   return card;
 }
+function renderExternalVideo(resource) {
+  const card = node('article', 'media-card link-card');
+  card.append(node('h4', '', resource.title || 'Видео'));
+  const box = node('div', 'link-video');
+  box.append(node('span', 'link-mark', '▶'), node('p', '', 'Это видео откроется на сайте, где оно опубликовано.'));
+  const open = mediaChip('a', 'Открыть видео', 'Открыть видео на сайте');
+  const href = safeExternal(resource.embedUrl);
+  if (href) { open.href = href; open.target = '_blank'; open.rel = 'noopener noreferrer'; }
+  else open.setAttribute('aria-disabled', 'true');
+  box.append(open);
+  card.append(box);
+  return card;
+}
 function renderEmbed(resource) {
+  const src = safeEmbed(resource.embedUrl);
+  if (!src) return renderExternalVideo(resource);
   const card = node('article', 'media-card');
   card.append(node('h4', '', resource.title || 'Видео'));
-  const stage = node('div', 'media-stage');
-  const src = safeEmbed(resource.embedUrl);
-  if (!src) { stage.append(node('p', 'media-note', 'Ссылка на видео не открывается.')); card.append(stage); return card; }
+  const stage = node('div', 'media-stage media-video');
+  if (resource.layout === 'portrait') stage.classList.add('is-portrait');
+  if (resource.layout === 'post' || resource.provider === 'telegram') stage.classList.add('is-post');
   const frame = node('iframe');
   frame.src = src; frame.title = resource.title || 'Видео';
-  frame.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen');
+  frame.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen; screen-wake-lock');
   frame.allowFullscreen = true; frame.loading = 'lazy'; frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
   const bar = node('div', 'media-actions');
   const full = stageFullButton();
+  full.classList.add('media-chip');
   full.addEventListener('click', () => toggleStageFull(stage));
-  const open = node('a', 'button small', 'Открыть на сайте'); open.href = src; open.target = '_blank'; open.rel = 'noopener noreferrer';
+  const open = mediaChip('a', '↗ Сайт', 'Открыть на сайте');
+  open.href = src; open.target = '_blank'; open.rel = 'noopener noreferrer';
   bar.append(full, open); stage.append(frame, bar); card.append(stage);
   return card;
 }
-function fileList(resources) {
+function fileList(resources, lessonId) {
+  const images = (resources || []).filter(isImageResource);
   const list = node('div', 'file-list');
   for (const resource of resources) {
     const card = node('article', 'file-card'), info = node('div', 'file-title'), copy = node('div'), actions = node('div', 'file-actions');
-    copy.append(node('h4', '', resource.title || resource.filename || 'Материал урока'), node('p', '', [resource.format, resource.size, resource.description].filter(Boolean).join(' · ')));
-    info.append(node('span', 'file-type', resource.format || 'ФАЙЛ'), copy);
-    const view = node('button', 'button small', 'Предпросмотр ↗'); view.type = 'button';
-    view.addEventListener('click', () => openPreview(resource));
+    const title = resource.title || resource.filename || 'Материал урока';
+    copy.append(node('h4', '', title), node('p', '', [resource.format, resource.size, resource.description].filter(Boolean).join(' · ')));
+    const thumbSrc = isImageResource(resource) ? imageViewUrl(resource) : null;
+    if (thumbSrc) {
+      const thumb = node('button', 'file-thumb'); thumb.type = 'button';
+      thumb.setAttribute('aria-label', `Открыть изображение «${title}»`);
+      const img = node('img'); img.alt = ''; img.decoding = 'async'; img.src = thumbSrc;
+      img.addEventListener('error', () => { thumb.replaceWith(node('span', 'file-type', resource.format || 'ФАЙЛ')); });
+      thumb.append(img);
+      thumb.addEventListener('click', () => openImageLightbox(resource, images, lessonId));
+      info.append(thumb, copy);
+    } else info.append(node('span', 'file-type', resource.format || 'ФАЙЛ'), copy);
+    const view = node('button', 'button small', isImageResource(resource) ? 'Смотреть' : 'Предпросмотр ↗'); view.type = 'button';
+    view.addEventListener('click', () => isImageResource(resource) ? openImageLightbox(resource, images, lessonId) : openPreview(resource));
     const download = node('a', 'button small', '↓ Скачать'); downloadLink(download, resource);
     actions.append(view, download); card.append(info, actions); list.append(card);
   } return list;
@@ -491,6 +589,7 @@ function renderChecks(container, checks, lessonId) {
   } container.append(wrap);
 }
 async function openPreview(resource) {
+  if (isImageResource(resource)) { openImageLightbox(resource, [resource]); return; }
   const dialog = $('#preview-dialog'), container = $('#preview-content');
   for (const viewer of modalViewers.splice(0)) viewer.destroy();
   container.replaceChildren(); $('#preview-title').textContent = resource.title || 'Материал урока'; downloadLink($('#preview-download'), resource);
@@ -679,13 +778,129 @@ class ImageViewer {
   }
   destroy() { this.dead = true; this.nav++; this.frame?.closest('.pdf-viewer')?.classList.remove('is-stage-full'); for (const img of this.slots) { img.onload = null; img.onerror = null; img.removeAttribute('src'); } syncScrollLock(); }
 }
+function openImageLightbox(resource, images, lessonId) {
+  const gallery = (images || []).filter(isImageResource);
+  const list = gallery.length ? gallery : [resource];
+  if (!lightbox) lightbox = new PhotoLightbox();
+  lightbox.open(list, Math.max(0, list.indexOf(resource)), lessonId);
+}
+class PhotoLightbox {
+  constructor() {
+    this.dialog = node('dialog', 'image-lightbox');
+    this.dialog.setAttribute('aria-label', 'Просмотр изображения');
+    const bar = node('div', 'lightbox-bar');
+    this.count = node('span', 'lightbox-count');
+    this.count.setAttribute('aria-live', 'polite');
+    const tools = node('div', 'lightbox-tools');
+    this.download = mediaChip('a', '↓ Скачать', 'Скачать');
+    const close = node('button', 'icon-button', '×');
+    close.type = 'button'; close.setAttribute('aria-label', 'Закрыть');
+    close.addEventListener('click', () => this.close());
+    tools.append(this.download, close);
+    bar.append(this.count, tools);
+    this.stage = node('div', 'lightbox-stage');
+    this.image = node('img', 'lightbox-image');
+    this.image.alt = ''; this.image.draggable = false;
+    this.stage.append(this.image);
+    this.prev = node('button', 'lightbox-nav prev', '←');
+    this.next = node('button', 'lightbox-nav next', '→');
+    this.prev.type = 'button'; this.next.type = 'button';
+    this.prev.setAttribute('aria-label', 'Предыдущее изображение');
+    this.next.setAttribute('aria-label', 'Следующее изображение');
+    this.prev.addEventListener('click', () => this.go(this.index - 1));
+    this.next.addEventListener('click', () => this.go(this.index + 1));
+    this.dialog.append(bar, this.stage, this.prev, this.next);
+    document.body.append(this.dialog);
+    this.scale = 1; this.panX = 0; this.panY = 0; this.index = 0; this.token = 0; this.drag = null;
+    this.dialog.addEventListener('close', () => { this.applyZoom(1); syncScrollLock(); });
+    this.dialog.addEventListener('cancel', () => syncScrollLock());
+    this.dialog.addEventListener('keydown', event => {
+      if (event.key === 'ArrowRight') { event.preventDefault(); this.go(this.index + 1); }
+      else if (event.key === 'ArrowLeft') { event.preventDefault(); this.go(this.index - 1); }
+    });
+    this.download.addEventListener('click', async event => {
+      const resource = this.images?.[this.index];
+      if (!resource || !this.lessonId || Date.now() < catalogExpireAt - 60000) return;
+      event.preventDefault();
+      const url = await refreshMedia(resource, this.lessonId, true);
+      if (!url) return;
+      this.download.href = url;
+      location.assign(url);
+    });
+    bindSwipe(this.stage, delta => this.go(this.index + delta));
+    bindPinch(this.stage, () => this.scale, scale => this.applyZoom(scale));
+    this.stage.addEventListener('wheel', event => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      this.applyZoom(this.scale * (event.deltaY < 0 ? 1.08 : 0.92));
+    }, { passive: false });
+    this.stage.addEventListener('pointerdown', event => {
+      if (this.scale <= 1.02 || this.stage.dataset.pinching === '1') return;
+      this.drag = { id: event.pointerId, x: event.clientX, y: event.clientY, ox: this.panX, oy: this.panY };
+    });
+    this.stage.addEventListener('pointermove', event => {
+      if (!this.drag || event.pointerId !== this.drag.id || this.stage.dataset.pinching === '1') return;
+      this.panX = this.drag.ox + event.clientX - this.drag.x;
+      this.panY = this.drag.oy + event.clientY - this.drag.y;
+      this.paint();
+    });
+    const end = () => { this.drag = null; };
+    this.stage.addEventListener('pointerup', end);
+    this.stage.addEventListener('pointercancel', end);
+  }
+  open(images, index, lessonId) {
+    this.images = images; this.lessonId = lessonId || null;
+    if (!this.dialog.open) this.dialog.showModal();
+    syncScrollLock();
+    this.go(index, true);
+  }
+  close() { if (this.dialog.open) this.dialog.close(); }
+  applyZoom(scale) {
+    const next = Math.min(4, Math.max(1, Number(scale) || 1));
+    this.scale = next;
+    if (next <= 1.02) { this.panX = 0; this.panY = 0; }
+    this.stage.dataset.zoomed = next > 1.02 ? '1' : '0';
+    this.paint();
+  }
+  paint() { this.image.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.scale})`; }
+  async go(index, force = false) {
+    if (!this.images || index < 0 || index >= this.images.length) return;
+    if (!force && index === this.index && this.image.getAttribute('src')) return;
+    this.index = index;
+    this.applyZoom(1);
+    const resource = this.images[index];
+    const title = resource.title || resource.filename || 'Изображение';
+    this.count.textContent = this.images.length > 1 ? `${index + 1} из ${this.images.length}` : title;
+    this.image.alt = title;
+    const many = this.images.length > 1;
+    this.prev.hidden = !many; this.next.hidden = !many;
+    this.prev.disabled = index === 0; this.next.disabled = index === this.images.length - 1;
+    downloadLink(this.download, resource);
+    const token = ++this.token;
+    let src = imageViewUrl(resource);
+    if (this.lessonId && resource.key && Date.now() >= catalogExpireAt - 60000) {
+      const fresh = await refreshMedia(resource, this.lessonId, false);
+      if (fresh) src = fresh;
+    }
+    if (token !== this.token) return;
+    this.image.onerror = () => { if (token === this.token) this.image.alt = 'Не удалось открыть изображение'; };
+    if (src) this.image.src = src; else this.image.removeAttribute('src');
+    const neighbor = this.images[index + 1] || this.images[index - 1];
+    const ahead = neighbor ? imageViewUrl(neighbor) : null;
+    if (ahead) { const pre = new Image(); pre.decoding = 'async'; pre.src = ahead; }
+  }
+}
 $('#previous-lesson').addEventListener('click', () => selectLesson(current - 1, true));
 $('#next-lesson').addEventListener('click', () => selectLesson(current + 1, true));
 async function apiRetry(path){let last;for(let i=0;i<3;i++){const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),15000);try{const r=await fetch(path,{signal:ctl.signal});clearTimeout(t);if(r.status<500||i===2)return r;last=new Error(path+' HTTP '+r.status);}catch(e){clearTimeout(t);last=e;}await new Promise(r=>setTimeout(r,800*(i+1)));}throw last;}
 const sectionObserver = new IntersectionObserver(entries => {
   const visible = entries.filter(e => e.isIntersecting).sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top);
   if (!visible.length) return; const id = visible[0].target.id;
-  for (const a of document.querySelectorAll('.outline nav a')) a.classList.toggle('active', a.getAttribute('href') === `#${id}`);
+  for (const a of document.querySelectorAll('.outline nav a')) {
+    const on = a.getAttribute('href') === `#${id}`;
+    a.classList.toggle('active', on);
+    if (on) scrollChip(a);
+  }
 }, {rootMargin:'-95px 0px -55% 0px',threshold:0});
 for (const section of document.querySelectorAll('.resource-section')) sectionObserver.observe(section);
 try {

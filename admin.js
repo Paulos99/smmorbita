@@ -307,7 +307,7 @@ function renderEditor() {
   form.addEventListener('submit', event => { event.preventDefault(); save(event.submitter?.dataset.status || 'draft'); });
   const side = node('aside', 'side');
   side.append(node('h3', '', 'Как это работает'), node('ol'));
-  const steps = ['Номер и название видят ученики в списке уроков.', 'PDF презентации превращается в картинки слайдов. PowerPoint — только для скачивания.', 'Видео лучше загружать как MP4 (H.264). Ссылку YouTube, VK или Rutube можно вставить без файла.', 'HTML-страница открывается у ученика прямо в уроке. ZIP с index.html соберётся в одну страницу.', 'Черновик не виден ученикам. «Опубликовать» открывает урок сразу.', 'Большое видео грузится частями напрямую в хранилище, с полоской загрузки.'];
+  const steps = ['Номер и название видят ученики в списке уроков.', 'PDF презентации превращается в картинки слайдов. PowerPoint — только для скачивания.', 'Видео лучше загружать как MP4 (H.264). Ссылку YouTube, VK, Rutube, Дзен, Vimeo, Kinescope и других плееров можно вставить без файла.', 'HTML-страница открывается у ученика прямо в уроке. ZIP с index.html соберётся в одну страницу.', 'Черновик не виден ученикам. «Опубликовать» открывает урок сразу.', 'Большое видео грузится частями напрямую в хранилище, с полоской загрузки.'];
   for (const step of steps) side.querySelector('ol').append(node('li', '', step));
   layout.append(form, side); screen.append(back, layout); form.querySelector('[name=title]').focus();
 }
@@ -409,7 +409,7 @@ function videosBlock(draft) {
       render();
     });
     const linkRow = node('div', 'file-row');
-    const linkInput = node('input'); linkInput.type = 'url'; linkInput.placeholder = 'Ссылка YouTube, VK или Rutube'; linkInput.setAttribute('aria-label', 'Ссылка на видео');
+    const linkInput = node('input'); linkInput.type = 'url'; linkInput.placeholder = 'YouTube, VK, Rutube, Дзен, Kinescope…'; linkInput.setAttribute('aria-label', 'Ссылка на видео');
     const addLink = node('button', 'mini', 'Добавить ссылку'); addLink.type = 'button';
     addLink.addEventListener('click', () => {
       const link = linkInput.value.trim();
@@ -422,7 +422,7 @@ function videosBlock(draft) {
     body.append(add, input, linkRow);
   };
   render();
-  return fileBlock('Видео', 'MP4 с кодеком H.264 открывается на телефонах. WebM и MOV тоже можно, но не везде. Файл больше 32 МБ загружается частями: если связь оборвётся, сохранение продолжит с той же части. Или вставьте ссылку — файл тогда не нужен.', body);
+  return fileBlock('Видео', 'MP4 с кодеком H.264 открывается на телефонах. WebM и MOV тоже можно, но не везде. Файл больше 32 МБ загружается частями: если связь оборвётся, сохранение продолжит с той же части. Ссылку можно вставить без файла: плеер откроет YouTube, VK, Rutube, код встраивания Дзена, Vimeo, Loom, Google Диск, Kinescope, OK и публичный пост Telegram. Яндекс Диск, Кинопоиск и Boosty в страницу не встраиваются — ученик увидит кнопку «Открыть видео». Так же откроется любая другая https-ссылка.', body);
 }
 function pagesBlock(draft) {
   const body = node('div');
@@ -470,13 +470,13 @@ function materialsBlock(draft) {
       controls.append(up, down, remove); row.append(title, controls); body.append(row, file);
     });
     const add = node('button', 'mini', 'Добавить файл'); add.type = 'button';
-    const input = node('input'); input.type = 'file'; input.hidden = true; input.accept = '.pdf,.docx,.pptx,.png,.jpg,.jpeg,.webp,.zip,.txt,.xlsx';
+    const input = node('input'); input.type = 'file'; input.hidden = true; input.accept = '.pdf,.docx,.pptx,.png,.jpg,.jpeg,.webp,.gif,.zip,.txt,.xlsx,image/png,image/jpeg,image/webp,image/gif';
     add.addEventListener('click', () => input.click());
     input.addEventListener('change', () => { const file = input.files?.[0]; if (!file) return; draft.materials.push({ title: file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' '), file, resource: null }); render(); });
     body.append(add, input);
   };
   render();
-  return fileBlock('Дополнительные материалы', 'Шаблоны и памятки. Название видит ученик. Порядок можно менять стрелками.', body);
+  return fileBlock('Дополнительные материалы', 'Шаблоны, памятки и картинки PNG, JPG, WEBP, GIF. Картинку ученик увидит в карточке и откроет на весь экран. Название видит ученик. Порядок можно менять стрелками.', body);
 }
 function existingLine(resource, onClear) {
   const box = node('div', 'file-box');
@@ -605,7 +605,8 @@ async function buildMaterials(draft, presentation) {
       const ticket = await upload(draft.id, 'extra', item.file, item.file.name, { index }, ratio => showStatus(`Загружаем «${item.title.trim()}»… ${Math.round(ratio * 100)}%`, ratio));
       const extension = extOf(item.file.name);
       let preview, pages;
-      if (extension === 'pdf' || extension === 'docx') {
+      if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(extension)) preview = { type: 'image', url: ticket.path };
+      else if (extension === 'pdf' || extension === 'docx') {
         const rendered = extension === 'pdf'
           ? await pdfToWebpBlobs(await item.file.arrayBuffer(), { maxPages: 12, onProgress: (done, total) => showStatus(`Страницы «${item.title.trim()}»… ${done} из ${total}`) })
           : await textToWebpBlobs(linesFromSections((await docxToSections(await item.file.arrayBuffer())).sections), { maxPages: 8 });
@@ -617,7 +618,7 @@ async function buildMaterials(draft, presentation) {
         pages = urls.length;
         preview = urls.length === 1 ? { type: 'image', url: urls[0] } : { type: 'images', kind: 'pages', urls };
       }
-      items.push({ ...resourceFrom(ticket, item.file, { title: item.title.trim() }), ...(pages ? { pages, preview } : {}) });
+      items.push({ ...resourceFrom(ticket, item.file, { title: item.title.trim() }), ...(pages ? { pages } : {}), ...(preview ? { preview } : {}) });
     } else if (item.resource) items.push({ ...item.resource, title: item.title.trim() });
   }
   const pptx = draft.pptxUpload || (!draft.clearPresentation ? draft.pptxKept : null);
