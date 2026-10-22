@@ -729,34 +729,43 @@ function ask(title, copy, confirmLabel) {
     dialog.showModal();
   });
 }
-function showPassword(password, title, self) {
+function showPassword(password, title, self, login) {
   $('#password-heading').textContent = title || 'Новый пароль';
+  const loginRow = $('#credential-login-row');
+  const loginInput = $('#credential-login');
+  const shownLogin = String(login || '');
+  if (loginRow) loginRow.hidden = !shownLogin;
+  if (loginInput) loginInput.value = shownLogin;
   $('#password-note').textContent = self
-    ? 'Скопируйте пароль. Этот вход сейчас закроется — войдите заново. После закрытия окна пароль больше не появится.'
-    : 'Скопируйте пароль и передайте его человеку. После закрытия окна он больше не появится.';
+    ? (shownLogin
+      ? 'Скопируйте логин и пароль. Этот вход сейчас закроется — войдите заново. После закрытия окна пароль больше не появится.'
+      : 'Скопируйте пароль. Этот вход сейчас закроется — войдите заново. После закрытия окна пароль больше не появится.')
+    : (shownLogin
+      ? 'Скопируйте логин и пароль и передайте их человеку. После закрытия окна пароль больше не появится.'
+      : 'Скопируйте пароль и передайте его человеку. После закрытия окна он больше не появится.');
   const input = $('#password-value');
   const copy = $('#password-copy');
   const dialog = $('#password-dialog');
   let current = password;
   input.value = current;
   copy.textContent = 'Скопировать';
-  const close = () => { current = ''; input.value = ''; if (dialog.open) dialog.close(); };
+  const close = () => { current = ''; input.value = ''; if (loginInput) loginInput.value = ''; if (dialog.open) dialog.close(); };
   $('#password-close').onclick = close;
   copy.onclick = async () => {
-    const value = current;
+    const value = current ? (shownLogin ? `Логин: ${shownLogin}\nПароль: ${current}` : current) : '';
     if (!value) return;
     try {
       await navigator.clipboard.writeText(value);
       copy.textContent = 'Скопировано';
-      say('Пароль скопирован');
+      say(shownLogin ? 'Логин и пароль скопированы' : 'Пароль скопирован');
     } catch {
       input.focus();
       input.select();
-      try { document.execCommand('copy'); copy.textContent = 'Скопировано'; say('Пароль скопирован'); }
+      try { document.execCommand('copy'); copy.textContent = 'Скопировано'; say(shownLogin ? 'Логин и пароль скопированы' : 'Пароль скопирован'); }
       catch { copy.textContent = 'Выделите и скопируйте'; }
     }
   };
-  dialog.addEventListener('close', () => { current = ''; input.value = ''; }, { once: true });
+  dialog.addEventListener('close', () => { current = ''; input.value = ''; if (loginInput) loginInput.value = ''; }, { once: true });
   dialog.showModal();
   input.focus();
   input.select();
@@ -802,13 +811,13 @@ function renderUsers() {
   screen.append(tabs('users'));
   const head = node('div', 'page-head');
   const copy = node('div');
-  copy.append(node('div', 'eyebrow', 'ШТАБ / ЛЮДИ'), node('h1', '', 'Пользователи'), node('p', 'lead', 'Добавьте ученика или преподавателя. Пароль создаётся сам и показывается один раз.'));
+  copy.append(node('div', 'eyebrow', 'ШТАБ / ЛЮДИ'), node('h1', '', 'Пользователи'), node('p', 'lead', 'Добавьте ученика или преподавателя. Логин соберётся из имени и фамилии, пароль создаётся сам и показывается один раз.'));
   const add = node('button', 'primary', 'Добавить пользователя');
   add.type = 'button';
   add.addEventListener('click', () => {
-    state.userForm = { mode: 'create', login: '', name: '', role: 'student', lessons: new Set(), error: '' };
+    state.userForm = { mode: 'create', login: '', first: '', last: '', name: '', role: 'student', lessons: new Set(), error: '', loginManual: false };
     renderUsers();
-    $('#user-login')?.focus();
+    $('#user-first')?.focus();
   });
   head.append(copy, add);
   screen.append(head);
@@ -1188,15 +1197,97 @@ function userRow(person) {
   row.append(actions);
   return row;
 }
+export function transliterate(value) {
+  const cyrillic = {
+    а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z',
+    и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r',
+    с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch',
+    ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+  };
+  let out = '';
+  for (const ch of String(value ?? '')) {
+    const lower = ch.toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(cyrillic, lower)) {
+      out += cyrillic[lower];
+      continue;
+    }
+    if (/[A-Za-z0-9_]/.test(ch)) out += ch;
+  }
+  return out;
+}
+export function loginFromNames(first, last) {
+  const initial = transliterate(String(first ?? '').trim()).match(/[A-Za-z]/)?.[0];
+  if (!initial) return '';
+  const lastRaw = transliterate(String(last ?? '').trim());
+  const letterAt = lastRaw.search(/[A-Za-z]/);
+  if (letterAt < 0) return '';
+  const lower = lastRaw.toLowerCase();
+  const pretty = lower.slice(0, letterAt) + lower.charAt(letterAt).toUpperCase() + lower.slice(letterAt + 1);
+  let base = `${initial.toUpperCase()}_${pretty}`.replace(/[^A-Za-z0-9_]/g, '');
+  if (base.length > 64) base = base.slice(0, 64);
+  return /^[A-Za-z]_[A-Za-z0-9_]+$/.test(base) ? base : '';
+}
+export function uniqueLogin(base, taken) {
+  const stem = String(base ?? '');
+  if (!/^[A-Za-z]_[A-Za-z0-9_]+$/.test(stem)) return '';
+  const used = new Set();
+  for (const item of taken || []) {
+    const login = String(item ?? '').trim().toLowerCase();
+    if (login) used.add(login);
+  }
+  const fit = (suffix) => {
+    const extra = suffix ? String(suffix) : '';
+    const room = 64 - extra.length;
+    if (room < 3) return '';
+    const candidate = stem.slice(0, room) + extra;
+    return /^[A-Za-z]_[A-Za-z0-9_]+$/.test(candidate) ? candidate : '';
+  };
+  const first = fit('');
+  if (first && !used.has(first.toLowerCase())) return first;
+  for (let n = 2; n <= 9999; n++) {
+    const candidate = fit(n);
+    if (candidate && !used.has(candidate.toLowerCase())) return candidate;
+  }
+  return '';
+}
+// end login-from-name
+function suggestLogin(first, last, people) {
+  return uniqueLogin(loginFromNames(first, last), (people || []).map(person => person?.login));
+}
 function userForm(draft) {
   const form = node('form', 'card user-card');
   form.id = 'user-form';
   form.noValidate = true;
   form.autocomplete = 'off';
   form.append(node('h3', '', draft.mode === 'create' ? 'Новый пользователь' : `Правка · ${draft.login}`));
-  form.append(node('p', 'hint', 'Логин — почта или короткие латинские буквы. Пароль придумает сайт и покажет его один раз.'));
-  if (draft.mode === 'create') form.append(textField('Логин', 'login', draft.login, 'ivan или ivan@school.ru', 64));
-  form.append(textField('Имя', 'name', draft.name, 'Как обращаться к человеку', 80));
+  if (draft.mode === 'create') {
+    if (!draft.loginManual) draft.login = suggestLogin(draft.first || '', draft.last || '', state.people);
+    form.append(node('p', 'hint', 'Логин собирается сам: первая латинская буква имени, подчёркивание и фамилия, например «Павел Анцибор» → P_Antsibor. Поле можно поправить — после ручной правки оно больше не заполняется само. Если логин занят, в конце будет 2, 3 и дальше. Пароль сайт покажет один раз вместе с логином.'));
+    const pair = node('div', 'name-pair');
+    pair.append(textField('Имя', 'first', draft.first, 'Павел', 40), textField('Фамилия', 'last', draft.last, 'Анцибор', 40));
+    form.append(pair);
+    form.append(textField('Логин', 'login', draft.login, 'Соберётся из имени и фамилии', 64));
+    const firstInput = form.querySelector('#user-first');
+    const lastInput = form.querySelector('#user-last');
+    const loginInput = form.querySelector('#user-login');
+    const sync = () => {
+      draft.first = firstInput.value;
+      draft.last = lastInput.value;
+      if (draft.loginManual) return;
+      const next = suggestLogin(firstInput.value, lastInput.value, state.people);
+      if (loginInput.value !== next) loginInput.value = next;
+      draft.login = next;
+    };
+    firstInput.addEventListener('input', sync);
+    lastInput.addEventListener('input', sync);
+    loginInput.addEventListener('input', () => {
+      draft.loginManual = true;
+      draft.login = loginInput.value;
+    });
+  } else {
+    form.append(node('p', 'hint', 'Логин этого человека не меняется. Новый пароль выдаётся кнопкой «Новый пароль» в строке.'));
+    form.append(textField('Имя', 'name', draft.name, 'Как обращаться к человеку', 80));
+  }
   const choices = node('fieldset', 'choices');
   choices.append(node('legend', '', 'РОЛЬ'));
   for (const [value, title, note] of [['teacher', 'Преподаватель', 'Видит все уроки и этот кабинет'], ['student', 'Ученик', 'Видит только отмеченные уроки']]) {
@@ -1245,12 +1336,14 @@ function textField(label, name, value, placeholder, max) {
   const input = node('input');
   input.type = 'text';
   input.name = name;
-  input.id = name === 'login' ? 'user-login' : 'user-name';
+  const ids = { login: 'user-login', name: 'user-name', first: 'user-first', last: 'user-last' };
+  if (ids[name]) input.id = ids[name];
   input.value = value || '';
   input.placeholder = placeholder;
   input.maxLength = max;
   input.autocomplete = 'off';
   input.spellcheck = false;
+  if (name === 'login') input.autocapitalize = 'off';
   wrap.append(input);
   return wrap;
 }
@@ -1258,8 +1351,13 @@ function readUserForm() {
   const form = $('#user-form');
   const draft = state.userForm;
   if (!form || !draft) return null;
-  if (draft.mode === 'create') draft.login = form.login.value.trim();
-  draft.name = form.name.value.trim();
+  if (draft.mode === 'create') {
+    draft.first = $('#user-first', form).value.trim();
+    draft.last = $('#user-last', form).value.trim();
+    draft.login = $('#user-login', form).value.trim();
+    draft.name = [draft.first, draft.last].filter(Boolean).join(' ');
+    if (!draft.loginManual) draft.login = suggestLogin(draft.first, draft.last, state.people);
+  } else draft.name = form.name.value.trim();
   draft.role = form.querySelector('input[name=user-role]:checked')?.value || 'student';
   draft.lessons = new Set([...form.querySelectorAll('input[name=lesson]:checked')].map(input => input.value));
   return draft;
@@ -1267,18 +1365,22 @@ function readUserForm() {
 async function saveUser() {
   const draft = readUserForm();
   if (!draft || state.busy) return;
-  if (draft.mode === 'create' && !draft.login) { draft.error = 'Напишите логин.'; renderUsers(); return; }
-  if (!draft.name) { draft.error = 'Напишите имя.'; renderUsers(); return; }
-  if (draft.mode === 'edit' && draft.login === state.me && draft.role !== 'teacher') { draft.error = 'Нельзя понизить свою роль.'; renderUsers(); return; }
+  if (draft.mode === 'create') {
+    if (!draft.first || !draft.last) { draft.error = 'Напишите имя и фамилию.'; renderUsers(); return; }
+    if (!draft.login && !draft.loginManual) { draft.error = 'Не получилось собрать логин из имени и фамилии. Напишите логин сами.'; renderUsers(); return; }
+  } else if (!draft.name) { draft.error = 'Напишите имя.'; renderUsers(); return; }
+  if (draft.mode === 'edit' && draft.login.toLowerCase() === state.me && draft.role !== 'teacher') { draft.error = 'Нельзя понизить свою роль.'; renderUsers(); return; }
   setBusy(true);
   try {
     const lessons = [...draft.lessons];
     if (draft.mode === 'create') {
-      const data = await api('/api/admin/accounts', { method: 'POST', body: { login: draft.login, name: draft.name, role: draft.role, lessons } });
+      const payload = { name: `${draft.first} ${draft.last}`, firstName: draft.first, lastName: draft.last, role: draft.role, lessons };
+      if (draft.loginManual) payload.login = draft.login;
+      const data = await api('/api/admin/accounts', { method: 'POST', body: payload });
       state.userForm = null;
       clearUserFilters();
-      state.notice = `Пользователь ${data.account.name} создан.`;
-      showPassword(data.password, `Пароль для ${data.account.name}`, false);
+      state.notice = `Пользователь ${data.account.name} создан. Логин ${data.account.login}.`;
+      showPassword(data.password, `Вход для ${data.account.name}`, false, data.account.login);
       await refreshPeople();
     } else {
       await api(`/api/admin/accounts/${encodeURIComponent(draft.login)}`, { method: 'PATCH', body: { name: draft.name, role: draft.role, lessons } });
@@ -1299,12 +1401,12 @@ async function resetUser(person) {
   setBusy(true);
   try {
     const data = await api(`/api/admin/accounts/${encodeURIComponent(person.login)}/reset-password`, { method: 'POST', body: {} });
-    const self = person.login === state.me;
-    showPassword(data.password, self ? 'Ваш новый пароль' : `Пароль для ${person.name}`, self);
+    const self = person.login.toLowerCase() === state.me;
+    showPassword(data.password, self ? 'Ваш новый пароль' : `Пароль для ${person.name}`, self, person.login);
     if (!self) await refreshPeople();
   } catch (error) { state.notice = error.message; }
   finally { setBusy(false); }
-  if (person.login !== state.me) renderUsers();
+  if (person.login.toLowerCase() !== state.me) renderUsers();
 }
 async function toggleUser(person) {
   if (state.busy) return;

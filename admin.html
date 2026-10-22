@@ -33,8 +33,9 @@
 <dialog id="password-dialog">
   <div class="eyebrow">ПАРОЛЬ ПОКАЗАН ОДИН РАЗ</div>
   <h2 id="password-heading">Новый пароль</h2>
-  <p id="password-note">Скопируйте пароль и передайте его человеку. После закрытия окна он больше не появится.</p>
-  <div class="password-once"><input id="password-value" type="text" readonly aria-label="Новый пароль" autocomplete="off" spellcheck="false"><button class="primary" type="button" id="password-copy">Скопировать</button></div>
+  <p id="password-note">Скопируйте логин и пароль и передайте их человеку. После закрытия окна пароль больше не появится.</p>
+  <div class="credential" id="credential-login-row"><span>Логин</span><input id="credential-login" type="text" readonly aria-label="Логин" autocomplete="off" spellcheck="false"></div>
+  <div class="credential"><span>Пароль</span><div class="password-once"><input id="password-value" type="text" readonly aria-label="Новый пароль" autocomplete="off" spellcheck="false"><button class="primary" type="button" id="password-copy">Скопировать</button></div></div>
   <div class="dialog-actions"><button class="secondary" type="button" id="password-close">Закрыть</button></div>
 </dialog>
 <p class="sr-only" id="live" aria-live="polite"></p>

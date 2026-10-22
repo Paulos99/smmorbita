@@ -129,6 +129,12 @@ dialog p{color:#c8c8be}
 .user-meta{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 10px;color:#9d9d94;font-size:13px}
 .user-meta p{margin:0}
 .user-card{margin-bottom:16px}
+.name-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 12px}
+.name-pair .field{min-width:0}
+.credential{display:grid;gap:7px;margin:0 0 12px;min-width:0}
+.credential>span{font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:#c8c8be;font-weight:650}
+.credential>input{width:100%;min-width:0;font:600 18px/1.4 ui-monospace,SFMono-Regular,monospace;letter-spacing:.04em;background:#121212;border:1px solid #4a4a4a;border-radius:10px;padding:12px;color:#f7f6f1}
+.credential[hidden]{display:none !important}
 .lesson-picks{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
 .lesson-picks label{display:flex;gap:8px;align-items:flex-start;background:#161616;border:1px solid #3f3f3f;border-radius:12px;padding:10px 12px;font-size:15px;max-width:100%;min-height:44px}
 .lesson-picks input{margin-top:3px;accent-color:var(--blue)}
@@ -212,7 +218,8 @@ select,input,textarea{max-width:100%}
   .user-table td::before{flex:none}
   .user-table td.actions-cell{flex-direction:row;align-items:center}
   dialog{width:calc(100% - 16px);max-width:calc(100% - 16px)}
-  .password-once input{font-size:16px}
+  .password-once input,.credential>input{font-size:16px}
+  .name-pair{grid-template-columns:minmax(0,1fr)}
   .tabs{flex-wrap:wrap}
   .tab{flex:1 1 140px}
 }
