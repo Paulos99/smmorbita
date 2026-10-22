@@ -556,9 +556,9 @@ function bindMaterialDrag(body, draft, render) {
       };
       const finish = ev => {
         if (ev.pointerId !== pointer) return;
-        handle.removeEventListener('pointermove', onMove);
-        handle.removeEventListener('pointerup', finish);
-        handle.removeEventListener('pointercancel', finish);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', finish);
+        window.removeEventListener('pointercancel', finish);
         row.classList.remove('is-dragging');
         if (!active) return;
         if (origin.every((item, i) => item === draft.materials[i])) return;
@@ -567,9 +567,9 @@ function bindMaterialDrag(body, draft, render) {
         void persistMaterialOrder(draft, origin, render);
       };
       try { handle.setPointerCapture(pointer); } catch {}
-      handle.addEventListener('pointermove', onMove);
-      handle.addEventListener('pointerup', finish);
-      handle.addEventListener('pointercancel', finish);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', finish);
+      window.addEventListener('pointercancel', finish);
     });
   });
 }
