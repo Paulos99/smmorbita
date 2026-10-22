@@ -19,6 +19,15 @@
   header a:hover img,#submit:hover{transform:none}
 }
 .login-card.is-shaking{animation:login-shake 320ms ease}
+.forgot-open{display:inline-flex;align-items:center;min-height:44px;margin:0 0 6px;padding:0;background:none;border:0;color:#d5e6ff;font:600 15px/1.4 Inter,Arial,sans-serif;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+#forgot-form{margin:2px 0 12px}
+#forgot-form label{margin-top:12px}
+#forgot-form label span{color:#8d9188;font-weight:500;letter-spacing:0}
+#forgot-note{font-size:14px;line-height:1.5;color:#c9d7ea;min-height:0;margin:10px 0}
+#forgot-submit{border:1px solid #555;background:#242424;color:#f8f7f3;border-radius:28px;width:100%;min-height:48px;font:500 16px Inter,Arial,sans-serif;cursor:pointer}
+#forgot-submit:hover{border-color:#8eb6e6}
+#forgot-submit:disabled{opacity:.65;cursor:wait}
+.support>span{display:block;color:#c5c9be;font-size:14px;line-height:1.45}
 @media(prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   *,*::before,*::after{animation:none!important;transition:none!important}
@@ -55,3 +64,8 @@ footer{padding-bottom:max(24px,env(safe-area-inset-bottom))}
   .support{font-size:14px}
   footer{width:min(560px,calc(100% - 32px));font-size:12px;letter-spacing:.2px;flex-wrap:wrap;gap:8px}
 }
+.install-hint{position:fixed;z-index:40;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:center;background:#1c1c1c;border:1px solid #3a3a3a;border-radius:14px;padding:10px 12px;color:#f4f4eb;box-shadow:0 12px 30px #0008}
+.install-hint p{margin:0;flex:1;font-size:14px;line-height:1.35}
+.install-hint button{min-height:44px;border-radius:999px;border:1px solid #4a4a4a;background:#242424;color:#f4f4eb;padding:8px 14px;font:600 15px/1.2 Inter,Arial,sans-serif}
+.install-hint .install-go{background:#335f95;border-color:#6599d9;color:#fff}
+.install-hint .install-dismiss{width:44px;padding:0;flex:0 0 44px}

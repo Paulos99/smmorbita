@@ -1,5 +1,8 @@
 import {API,getToken,clearToken} from './auth.js';
+import {registerShell,armInstallHint} from './install.js';
+registerShell();
 if(!getToken()){location.replace('./login.html');throw new Error('auth');}
+armInstallHint();
 const $ = (selector, parent = document) => parent.querySelector(selector);
 const node = (tag, className, text) => {
   const e = document.createElement(tag); if (className) e.className = className;
@@ -340,6 +343,71 @@ for (const dialog of document.querySelectorAll('dialog')) {
   dialog.addEventListener('click', event => { if (event.target === dialog) { const r = dialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) closeDialog(dialog); } });
 }
 $('#help-button').addEventListener('click', () => { $('#help-dialog').showModal(); syncScrollLock(); });
+const doneLessons = new Set();
+function resourceMaterialId(resource, fallback) {
+  const raw = String(resource?.key || resource?.filename || resource?.title || fallback || 'material').replace(/[\u0000-\u001f]/g, '').trim();
+  return (raw || fallback || 'material').slice(0, 160);
+}
+function track(kind, lessonId, materialId) {
+  const body = { kind };
+  const lesson = lessonId == null || lessonId === '' ? (kind === 'material' ? String(lessons[current]?.id || 'shared') : '') : String(lessonId);
+  if (lesson) body.lessonId = lesson;
+  if (materialId) body.materialId = String(materialId).replace(/[\u0000-\u001f]/g, '').trim().slice(0, 160);
+  if (kind === 'material' && !body.materialId) return;
+  const stamp = `${kind}|${body.lessonId || ''}|${body.materialId || ''}`;
+  try {
+    const prev = sessionStorage.getItem('smm-track') || '';
+    if (prev.split('\n').includes(stamp)) return;
+    sessionStorage.setItem('smm-track', (prev ? prev + '\n' : '') + stamp);
+    const lines = sessionStorage.getItem('smm-track').split('\n');
+    if (lines.length > 200) sessionStorage.setItem('smm-track', lines.slice(-200).join('\n'));
+  } catch {}
+  fetch('/api/activity', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true }).catch(() => {});
+}
+function paintProgress() {
+  const total = lessons.length;
+  const done = lessons.filter(lesson => doneLessons.has(String(lesson.id))).length;
+  const box = $('#course-progress');
+  if (box) {
+    box.hidden = total === 0;
+    const label = $('#course-progress-label');
+    if (label) label.textContent = `Пройдено ${done} из ${total}`;
+    const bar = $('#course-progress-bar');
+    if (bar) {
+      bar.setAttribute('aria-valuemax', String(total));
+      bar.setAttribute('aria-valuenow', String(done));
+      bar.setAttribute('aria-label', `Пройдено ${done} из ${total}`);
+    }
+    const fill = $('#course-progress-fill');
+    if (fill) fill.style.width = total ? `${Math.round(done / total * 100)}%` : '0%';
+  }
+  for (const [index, lesson] of lessons.entries()) {
+    const tab = $(`#tab-${lesson.id}`);
+    if (!tab) continue;
+    const on = doneLessons.has(String(lesson.id));
+    tab.classList.toggle('is-done', on);
+    const label = tab.querySelector('span');
+    if (label) label.textContent = `Урок ${index + 1}${on ? ' ✓' : ''}`;
+    const base = `${lesson.title}, досье ${lesson.number}`;
+    tab.setAttribute('aria-label', on ? `${base}, урок пройден` : base);
+  }
+  const button = $('#lesson-done');
+  const lesson = lessons[current];
+  if (button && lesson) {
+    const on = doneLessons.has(String(lesson.id));
+    button.setAttribute('aria-pressed', String(on));
+    button.setAttribute('aria-label', on ? 'Урок пройден. Нажмите, чтобы снять отметку.' : 'Отметить: урок пройден');
+  }
+}
+function armCabinetBadge(link) {
+  fetch('/api/admin/resets').then(response => response.ok ? response.json() : null).then(data => {
+    const n = Number(data?.pending) || 0;
+    if (!n || !link.isConnected) return;
+    const badge = node('span', 'cab-badge', n > 99 ? '99+' : String(n));
+    badge.setAttribute('aria-label', `${n} заявок на сброс пароля`);
+    link.append(badge);
+  }).catch(() => {});
+}
 function buildTabs() {
   $('#lesson-tabs').replaceChildren(...lessons.map((lesson, index) => {
     const button = node('button', 'lesson-tab'); button.id = `tab-${lesson.id}`;
@@ -353,6 +421,7 @@ function buildTabs() {
     }); return button;
   }));
   armReveals($('#lesson-tabs'));
+  paintProgress();
 }
 function presentationPlaceholder(number) {
   const wrap = node('div'), cover = node('div', 'presentation-empty'), center = node('div');
@@ -438,6 +507,11 @@ async function selectLesson(index, scroll = false) {
   history.replaceState(null, '', `#lesson-${lesson.id}`);
   setAnnouncement(`Выбран ${lesson.title}. ${hasMaterials ? 'Материалы доступны.' : 'Материалы готовятся.'}`);
   if (scroll) $('#lesson').scrollIntoView({behavior: 'smooth'});
+  paintProgress();
+  track('lesson', lesson.id);
+  if (lesson.presentation) track('material', lesson.id, 'presentation');
+  if (lesson.lecture) track('material', lesson.id, 'lecture');
+  if (lesson.workbook) track('material', lesson.id, 'workbook');
 }
 function fileWord(n) { return n % 10 === 1 && n % 100 !== 11 ? 'файл' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'файла' : 'файлов'; }
 function lessonMedia(lesson) {
@@ -445,7 +519,7 @@ function lessonMedia(lesson) {
   if (lesson.videos?.length) {
     wrap.append(node('h4', 'media-kicker', 'Видео'));
     const list = node('div', 'media-list');
-    for (const video of lesson.videos) list.append(video.kind === 'embed' ? renderEmbed(video) : renderVideo(video, lesson.id));
+    for (const video of lesson.videos) list.append(video.kind === 'embed' ? renderEmbed(video, lesson.id) : renderVideo(video, lesson.id));
     wrap.append(list);
   }
   if (lesson.pages?.length) {
@@ -552,6 +626,7 @@ function mediaActions(stage, resource, lessonId) {
   return bar;
 }
 function renderHtmlPage(resource, lessonId) {
+  track('material', lessonId, resourceMaterialId(resource, 'page'));
   const card = node('article', 'media-card');
   card.append(node('h4', '', resource.title || 'Страница урока'));
   const stage = node('div', 'media-stage media-html');
@@ -605,6 +680,7 @@ function renderVideo(resource, lessonId) {
     mediaTimers.push(timer);
   };
   arm();
+  video.addEventListener('play', () => track('material', lessonId, resourceMaterialId(resource, 'video')), { once: true });
   video.addEventListener('error', () => { if ((video.currentTime || 0) > 0) swap(); });
   video.addEventListener('loadedmetadata', () => {
     const w = video.videoWidth, h = video.videoHeight;
@@ -616,7 +692,7 @@ function renderVideo(resource, lessonId) {
   card.append(stage);
   return card;
 }
-function renderExternalVideo(resource) {
+function renderExternalVideo(resource, lessonId) {
   const card = node('article', 'media-card link-card');
   card.append(node('h4', '', resource.title || 'Видео'));
   const box = node('div', 'link-video');
@@ -625,13 +701,15 @@ function renderExternalVideo(resource) {
   const href = safeExternal(resource.embedUrl);
   if (href) { open.href = href; open.target = '_blank'; open.rel = 'noopener noreferrer'; }
   else open.setAttribute('aria-disabled', 'true');
+  open.addEventListener('click', () => track('material', lessonId, resourceMaterialId(resource, 'video')));
   box.append(open);
   card.append(box);
   return card;
 }
-function renderEmbed(resource) {
+function renderEmbed(resource, lessonId) {
   const src = safeEmbed(resource.embedUrl);
-  if (!src) return renderExternalVideo(resource);
+  if (!src) return renderExternalVideo(resource, lessonId);
+  track('material', lessonId, resourceMaterialId(resource, 'video'));
   const card = node('article', 'media-card');
   card.append(node('h4', '', resource.title || 'Видео'));
   const stage = node('div', 'media-stage media-video');
@@ -668,7 +746,7 @@ function fileList(resources, lessonId) {
       info.append(thumb, copy);
     } else info.append(node('span', 'file-type', resource.format || 'ФАЙЛ'), copy);
     const view = node('button', 'button small', isImageResource(resource) ? 'Смотреть' : 'Предпросмотр ↗'); view.type = 'button';
-    view.addEventListener('click', () => isImageResource(resource) ? openImageLightbox(resource, images, lessonId) : openPreview(resource));
+    view.addEventListener('click', () => isImageResource(resource) ? openImageLightbox(resource, images, lessonId) : openPreview(resource, lessonId));
     const download = node('a', 'button small', '↓ Скачать'); downloadLink(download, resource);
     actions.append(view, download); card.append(info, actions); list.append(card);
   } return list;
@@ -700,8 +778,9 @@ function renderChecks(container, checks, lessonId) {
     label.append(input, node('span', '', text)); wrap.append(label);
   } container.append(wrap);
 }
-async function openPreview(resource) {
-  if (isImageResource(resource)) { openImageLightbox(resource, [resource]); return; }
+async function openPreview(resource, lessonId) {
+  if (isImageResource(resource)) { openImageLightbox(resource, [resource], lessonId); return; }
+  track('material', lessonId, resourceMaterialId(resource, 'file'));
   const dialog = $('#preview-dialog'), container = $('#preview-content');
   for (const viewer of modalViewers.splice(0)) viewer.destroy();
   container.replaceChildren(); $('#preview-title').textContent = resource.title || 'Материал урока'; downloadLink($('#preview-download'), resource);
@@ -932,6 +1011,7 @@ class ImageViewer {
   destroy() { this.dead = true; this.nav++; this.frame?.closest('.pdf-viewer')?.classList.remove('is-stage-full'); for (const img of this.slots) { img.onload = null; img.onerror = null; img.removeAttribute('src'); } syncScrollLock(); }
 }
 function openImageLightbox(resource, images, lessonId) {
+  track('material', lessonId, resourceMaterialId(resource, 'image'));
   const gallery = (images || []).filter(isImageResource);
   const list = gallery.length ? gallery : [resource];
   if (!lightbox) lightbox = new PhotoLightbox();
@@ -1043,6 +1123,24 @@ class PhotoLightbox {
     if (ahead) { const pre = new Image(); pre.decoding = 'async'; pre.src = ahead; }
   }
 }
+$('#lesson-done')?.addEventListener('click', async () => {
+  const lesson = lessons[current];
+  const button = $('#lesson-done');
+  if (!lesson || !button || button.disabled) return;
+  const id = String(lesson.id);
+  const next = !doneLessons.has(id);
+  if (next) doneLessons.add(id); else doneLessons.delete(id);
+  paintProgress();
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lessonId: id, completed: next }) });
+    if (!response.ok) throw new Error();
+  } catch {
+    if (next) doneLessons.delete(id); else doneLessons.add(id);
+    paintProgress();
+    setAnnouncement('Не удалось сохранить отметку. Попробуйте ещё раз.');
+  } finally { button.disabled = false; }
+});
 $('#previous-lesson').addEventListener('click', () => selectLesson(current - 1, true));
 $('#next-lesson').addEventListener('click', () => selectLesson(current + 1, true));
 async function apiRetry(path){let last;for(let i=0;i<3;i++){const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),15000);try{const r=await fetch(path,{signal:ctl.signal});clearTimeout(t);if(r.status<500||i===2)return r;last=new Error(path+' HTTP '+r.status);}catch(e){clearTimeout(t);last=e;}await new Promise(r=>setTimeout(r,800*(i+1)));}throw last;}
@@ -1057,9 +1155,10 @@ const sectionObserver = new IntersectionObserver(entries => {
 }, {rootMargin:'-95px 0px -55% 0px',threshold:0});
 for (const section of document.querySelectorAll('.resource-section')) sectionObserver.observe(section);
 try {
-  const identity=await apiRetry('/api/session');if(!identity.ok)throw new Error('session HTTP '+identity.status);const account=(await identity.json()).user;const role=account.role==='teacher'?'Преподаватель':'Ученик';$('#account-name').textContent=account.name===role?role:`${account.name} · ${role}`;if(account.role==='teacher'){const cab=document.createElement('a');cab.className='help-button';cab.href='./admin.html';cab.textContent='Кабинет';$('#account-name').after(cab);}if(Array.isArray(account.roles)){const label=r=>r==='teacher'?'Преподаватель':r==='student'?'Ученик':r;const sel=document.createElement('select');sel.id='role-switch';sel.setAttribute('aria-label','Роль');sel.className='role-switch';for(const r of account.roles){const o=document.createElement('option');o.value=r;o.textContent='Роль: '+label(r);o.selected=r===account.role;sel.append(o);}sel.addEventListener('change',async()=>{const res=await fetch('/api/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sel.value})});if(res.ok){try{localStorage.setItem('smm-role',sel.value);}catch{}location.reload();}});$('#account-name').after(sel);}
+  const identity=await apiRetry('/api/session');if(!identity.ok)throw new Error('session HTTP '+identity.status);const account=(await identity.json()).user;const role=account.role==='teacher'?'Преподаватель':'Ученик';$('#account-name').textContent=account.name===role?role:`${account.name} · ${role}`;if(account.role==='teacher'){const cab=document.createElement('a');cab.className='help-button';cab.href='./admin.html';cab.textContent='Кабинет';$('#account-name').after(cab);armCabinetBadge(cab);}if(Array.isArray(account.roles)){const label=r=>r==='teacher'?'Преподаватель':r==='student'?'Ученик':r;const sel=document.createElement('select');sel.id='role-switch';sel.setAttribute('aria-label','Роль');sel.className='role-switch';for(const r of account.roles){const o=document.createElement('option');o.value=r;o.textContent='Роль: '+label(r);o.selected=r===account.role;sel.append(o);}sel.addEventListener('change',async()=>{const res=await fetch('/api/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sel.value})});if(res.ok){try{localStorage.setItem('smm-role',sel.value);}catch{}location.reload();}});$('#account-name').after(sel);}
   const response = await apiRetry('/api/lessons'); if (!response.ok) throw new Error('lessons HTTP '+response.status);
   const data = await response.json(); lessons = data.lessons;
+  try { const progress = await fetch('/api/progress'); if (progress.ok) { const body = await progress.json(); doneLessons.clear(); for (const id of body.completed || []) doneLessons.add(String(id)); } } catch {}
   catalogExpireAt = Date.now() + (Number(data.expiresIn) || 3600) * 1000;
   if(data.shared?.length){$('#shared-files').replaceChildren(fileList(data.shared));armReveals($('#shared-files'));}
   const useful=[

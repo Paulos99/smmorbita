@@ -3,6 +3,12 @@
 <head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://storage.yandexcloud.net; font-src 'self'; worker-src 'self' blob:; connect-src 'self' https://api.smmorbita.ru https://bba2iub2khhe4eg3fagq.containers.yandexcloud.net https://storage.yandexcloud.net; media-src 'self' blob: https://storage.yandexcloud.net; frame-src 'self' https://storage.yandexcloud.net https://www.youtube-nocookie.com https://vk.com https://vkvideo.ru https://rutube.ru https://player.vimeo.com https://www.loom.com https://drive.google.com https://kinescope.io https://ok.ru https://t.me https://dzen.ru; object-src 'none'; base-uri 'self'; form-action 'self'"><meta name="referrer" content="strict-origin-when-cross-origin">
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#141414">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./assets/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="СММ ШКОЛА">
   <meta name="description" content="Учебный архив СММ ШКОЛЫ: от контента до клиента. Презентации, лекции, дополнительные материалы и методички в одном месте.">
   <title>СММ ШКОЛА — От контента до клиента</title>
   <link rel="icon" href="./assets/school.webp"><link rel="stylesheet" href="./assets/fonts.css"><link rel="stylesheet" href="./styles.css">
@@ -24,9 +30,9 @@
     <div class="hero-art" aria-hidden="true"><div class="radar"><span></span><b>+</b></div><img src="./assets/school.webp" alt=""><span class="art-label">ЛИЧНОЕ ДЕЛО<br><strong>БУДУЩЕГО СПЕЦАГЕНТА</strong></span><span class="stamp">ДОПУСК<br>К ЗНАНИЯМ</span></div>
   </section>
   <div class="tape" aria-hidden="true"><div class="tape-track"><div class="tape-group"><span>ЗНАНИЯ В ДЕЛО</span><b>✦</b><span>КОНТЕНТ В СИСТЕМУ</span><b>✦</b><span>АУДИТОРИЮ В КЛИЕНТОВ</span><b>✦</b></div><div class="tape-group" aria-hidden="true"><span>ЗНАНИЯ В ДЕЛО</span><b>✦</b><span>КОНТЕНТ В СИСТЕМУ</span><b>✦</b><span>АУДИТОРИЮ В КЛИЕНТОВ</span><b>✦</b></div></div></div>
-  <section class="lesson-selector" aria-label="Выбор урока"><div class="wrap selector-inner"><span class="selector-caption">ВЫБЕРИТЕ ДОСЬЕ <span aria-hidden="true">→</span></span><div id="lesson-tabs" role="tablist" aria-label="Уроки"></div><span class="selector-count" id="selector-count">03 УРОКА / ПЕРВЫЙ ЭТАП</span></div></section>
+  <section class="lesson-selector" aria-label="Выбор урока"><div class="wrap selector-inner"><div class="course-progress" id="course-progress" hidden><div class="course-progress-row"><span id="course-progress-label">Пройдено 0 из 0</span></div><div class="course-progress-track" id="course-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-label="Прогресс курса"><span id="course-progress-fill"></span></div></div><span class="selector-caption">ВЫБЕРИТЕ ДОСЬЕ <span aria-hidden="true">→</span></span><div id="lesson-tabs" role="tablist" aria-label="Уроки"></div><span class="selector-count" id="selector-count">03 УРОКА / ПЕРВЫЙ ЭТАП</span></div></section>
   <div class="workspace wrap" id="lesson" role="tabpanel" tabindex="-1">
-    <section class="lesson-heading"><div><div class="eyebrow blue-text" id="lesson-code">УЧЕБНАЯ МИССИЯ / 001</div><h2 id="lesson-title">Урок 1</h2><p id="lesson-description"></p></div><span class="state-tag" id="lesson-state">Материалы готовятся</span></section>
+    <section class="lesson-heading"><div><div class="eyebrow blue-text" id="lesson-code">УЧЕБНАЯ МИССИЯ / 001</div><h2 id="lesson-title">Урок 1</h2><p id="lesson-description"></p></div><div class="lesson-status"><button type="button" id="lesson-done" class="lesson-done" aria-pressed="false">Урок пройден</button><span class="state-tag" id="lesson-state">Материалы готовятся</span></div></section>
     <div class="content-layout">
       <aside class="outline" aria-label="Разделы урока"><div class="eyebrow">В ЭТОМ ДОСЬЕ</div><nav><a href="#presentation" class="active"><span>01</span>Презентация<em>↗</em></a><a href="#lecture"><span>02</span>Лекция<em>↗</em></a><a href="#materials"><span>03</span>Доп. материалы<em>↗</em></a><a href="#workbook"><span>04</span>Методичка<em>↗</em></a><a href="#shared"><span>05</span>Общий арсенал<em>↗</em></a></nav><div class="outline-note"><span class="small-cross" aria-hidden="true">⊕</span><p>Сначала изучите.<br>Затем проверьте себя.<br>И выходите в поле.</p></div></aside>
       <div class="lesson-content">

@@ -6,7 +6,7 @@ import { packLessonHtml } from './htmlpack.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 const node = (tag, className, text) => { const el = document.createElement(tag); if (className) el.className = className; if (text != null) el.textContent = text; return el; };
 const screen = $('#screen');
-const state = { revision: 1, lessons: [], people: [], notice: '', editing: null, busy: false, me: '', userForm: null, userQuery: '', userRole: 'all', userStatus: 'all', userLesson: '' };
+const state = { revision: 1, lessons: [], people: [], notice: '', editing: null, busy: false, me: '', userForm: null, userQuery: '', userRole: 'all', userStatus: 'all', userLesson: '', period: '30', pending: 0, stats: null, resets: [] };
 
 const localApi = () => location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 const apiBase = () => localApi() ? '' : API;
@@ -166,9 +166,15 @@ async function boot() {
     state.me = String(user.login || '').toLowerCase();
     $('#who').textContent = user.name || '';
     if (user.role !== 'teacher') { denied(user.roles?.includes('teacher') ? 'Сейчас включена роль ученика. В архиве переключитесь на «Преподаватель» и откройте кабинет снова.' : 'Этот вход — ученический. Кабинет открывается только преподавателю.'); return; }
-    const [catalog, accounts] = await Promise.all([api('/api/admin/lessons'), api('/api/admin/accounts')]);
+    const [catalog, accounts, resets] = await Promise.all([
+      api('/api/admin/lessons'),
+      api('/api/admin/accounts'),
+      api('/api/admin/resets').catch(() => ({ pending: 0, requests: [] })),
+    ]);
     state.revision = catalog.revision; state.lessons = catalog.lessons; state.people = accounts.accounts;
+    state.pending = Number(resets.pending) || 0; state.resets = resets.requests || [];
     if (location.hash === '#users') await openUsers();
+    else if (location.hash === '#stats') await openStats();
     else renderList();
   } catch (error) { denied(error.message || 'Не удалось открыть кабинет.'); }
 }
@@ -188,7 +194,19 @@ function tabs(active) {
   users.setAttribute('role', 'tab');
   users.setAttribute('aria-selected', active === 'users' ? 'true' : 'false');
   users.addEventListener('click', () => { if (active !== 'users') openUsers(); });
-  nav.append(lessons, users);
+  const stats = node('button', 'tab');
+  stats.type = 'button';
+  stats.id = 'tab-stats';
+  stats.setAttribute('role', 'tab');
+  stats.setAttribute('aria-selected', active === 'stats' ? 'true' : 'false');
+  stats.append(document.createTextNode('Статистика'));
+  if (state.pending > 0) {
+    const badge = node('span', 'tab-badge', state.pending > 99 ? '99+' : String(state.pending));
+    badge.setAttribute('aria-label', `${state.pending} заявок на сброс пароля`);
+    stats.append(badge);
+  }
+  stats.addEventListener('click', () => { if (active !== 'stats') openStats(); });
+  nav.append(lessons, users, stats);
   return nav;
 }
 async function showLessons() {
@@ -196,6 +214,7 @@ async function showLessons() {
   state.userForm = null;
   if (location.hash !== '#lessons') location.hash = 'lessons';
   try { state.people = (await api('/api/admin/accounts')).accounts; } catch (error) { state.notice = error.message; }
+  try { state.pending = Number((await api('/api/admin/resets')).pending) || 0; } catch {}
   renderList();
 }
 function renderList() {
@@ -463,12 +482,14 @@ function materialsBlock(draft) {
       const title = node('input'); title.type = 'text'; title.value = item.title; title.placeholder = 'Как файл называется для ученика'; title.maxLength = 200;
       title.addEventListener('input', () => { item.title = title.value; });
       const controls = node('div', 'actions');
-      const up = moveButton(-1); up.disabled = index === 0; up.addEventListener('click', () => { swap(draft.materials, index, index - 1); render(); });
-      const down = moveButton(1); down.disabled = index === draft.materials.length - 1; down.addEventListener('click', () => { swap(draft.materials, index, index + 1); render(); });
+      const handle = node('button', 'drag-handle', '⠿'); handle.type = 'button'; handle.setAttribute('aria-label', 'Перетащить материал'); handle.title = 'Перетащить';
+      const up = moveButton(-1); up.disabled = index === 0; up.addEventListener('click', () => reorderMaterials(draft, index, index - 1, render));
+      const down = moveButton(1); down.disabled = index === draft.materials.length - 1; down.addEventListener('click', () => reorderMaterials(draft, index, index + 1, render));
       const remove = node('button', 'mini danger', 'Убрать'); remove.type = 'button'; remove.addEventListener('click', () => { draft.materials.splice(index, 1); render(); });
       const file = node('div', 'file-name', item.file ? item.file.name : (item.resource?.filename || 'Файл уже в уроке'));
-      controls.append(up, down, remove); row.append(title, controls); body.append(row, file);
+      controls.append(handle, up, down, remove); row.append(title, controls); body.append(row, file);
     });
+    bindMaterialDrag(body, draft, render);
     const add = node('button', 'mini', 'Добавить файл'); add.type = 'button';
     const input = node('input'); input.type = 'file'; input.hidden = true; input.accept = '.pdf,.docx,.pptx,.png,.jpg,.jpeg,.webp,.gif,.zip,.txt,.xlsx,image/png,image/jpeg,image/webp,image/gif';
     add.addEventListener('click', () => input.click());
@@ -476,7 +497,7 @@ function materialsBlock(draft) {
     body.append(add, input);
   };
   render();
-  return fileBlock('Дополнительные материалы', 'Шаблоны, памятки и картинки PNG, JPG, WEBP, GIF. Картинку ученик увидит в карточке и откроет на весь экран. Название видит ученик. Порядок можно менять стрелками.', body);
+  return fileBlock('Дополнительные материалы', 'Шаблоны, памятки и картинки PNG, JPG, WEBP, GIF. Картинку ученик увидит в карточке и откроет на весь экран. Название видит ученик. Порядок можно менять стрелками или перетаскиванием за ручку.', body);
 }
 function existingLine(resource, onClear) {
   const box = node('div', 'file-box');
@@ -486,6 +507,118 @@ function existingLine(resource, onClear) {
   row.append(button); box.append(row); return box;
 }
 function swap(list, a, b) { [list[a], list[b]] = [list[b], list[a]]; }
+let materialOrderChain = Promise.resolve();
+function reorderMaterials(draft, from, to, render) {
+  if (from === to || from < 0 || to < 0 || to >= draft.materials.length) return;
+  const previous = draft.materials.slice();
+  const [item] = draft.materials.splice(from, 1);
+  draft.materials.splice(to, 0, item);
+  render();
+  say('Порядок материалов изменён');
+  void persistMaterialOrder(draft, previous, render);
+}
+function bindMaterialDrag(body, draft, render) {
+  body.querySelectorAll('.material').forEach(row => {
+    const handle = row.querySelector('.drag-handle');
+    if (!handle) return;
+    handle.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || draft.materials.length < 2) return;
+      event.preventDefault();
+      const pointer = event.pointerId;
+      const startY = event.clientY;
+      const origin = draft.materials.slice();
+      let active = false;
+      const onMove = ev => {
+        if (ev.pointerId !== pointer) return;
+        if (!active) {
+          if (Math.abs(ev.clientY - startY) < 8) return;
+          active = true;
+          row.classList.add('is-dragging');
+        }
+        ev.preventDefault();
+        const rows = [...body.querySelectorAll(':scope > .material')];
+        const current = rows.indexOf(row);
+        if (current < 0) return;
+        let target = rows.length - 1;
+        for (let i = 0; i < rows.length; i++) {
+          const box = rows[i].getBoundingClientRect();
+          if (ev.clientY < box.top + box.height / 2) { target = i; break; }
+        }
+        if (target === current) return;
+        const file = row.nextElementSibling?.classList.contains('file-name') ? row.nextElementSibling : null;
+        const [item] = draft.materials.splice(current, 1);
+        draft.materials.splice(target, 0, item);
+        const anchor = rows[target];
+        const anchorFile = anchor.nextElementSibling?.classList.contains('file-name') ? anchor.nextElementSibling : anchor;
+        if (target > current) anchorFile.after(row);
+        else anchor.before(row);
+        if (file) row.after(file);
+      };
+      const finish = ev => {
+        if (ev.pointerId !== pointer) return;
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', finish);
+        handle.removeEventListener('pointercancel', finish);
+        row.classList.remove('is-dragging');
+        if (!active) return;
+        if (origin.every((item, i) => item === draft.materials[i])) return;
+        render();
+        say('Порядок материалов изменён');
+        void persistMaterialOrder(draft, origin, render);
+      };
+      try { handle.setPointerCapture(pointer); } catch {}
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', finish);
+      handle.addEventListener('pointercancel', finish);
+    });
+  });
+}
+function catalogMaterials(draft) {
+  const items = [];
+  for (const item of draft.materials) {
+    if (item.file || !item.resource?.download) continue;
+    items.push({ ...item.resource, title: item.title.trim() || item.resource.title });
+  }
+  const pptx = draft.pptxUpload || (!draft.clearPresentation ? draft.pptxKept : null);
+  if (pptx?.download && pptx.download !== draft.presentation?.download) items.push({ ...pptx, title: 'Презентация (PowerPoint)' });
+  const seen = new Set();
+  return items.filter(item => item.download && !seen.has(item.download) && seen.add(item.download));
+}
+function materialOrderReady(draft) {
+  return Boolean(draft.id) && !state.busy && draft.materials.length > 0 && draft.materials.every(item => item.resource?.download && !item.file);
+}
+function sameMaterials(list, snapshot) {
+  return list.length === snapshot.length && list.every((item, index) => item === snapshot[index]);
+}
+async function persistMaterialOrder(draft, previous, render) {
+  if (!materialOrderReady(draft)) return;
+  const intended = draft.materials.slice();
+  const run = materialOrderChain.then(async () => {
+    if (!sameMaterials(draft.materials, intended) || !materialOrderReady(draft)) return;
+    try {
+      const saved = await api(`/api/admin/lessons/${draft.id}`, { method: 'PUT', body: { materials: catalogMaterials(draft), revision: state.revision } });
+      state.revision = saved.revision;
+      if (!sameMaterials(draft.materials, intended)) return;
+      const extras = (saved.lesson?.materials || []).filter(item => !String(item.download || '').endsWith('/presentation.pptx'));
+      const pptx = (saved.lesson?.materials || []).find(item => String(item.download || '').endsWith('/presentation.pptx'));
+      if (pptx) draft.pptxKept = pptx;
+      draft.materials.forEach((item, index) => {
+        if (extras[index]?.download && extras[index].download === item.resource?.download) item.resource = extras[index];
+      });
+      showError('');
+    } catch (error) {
+      if (error.status === 409 && draft.id) {
+        try { const fresh = await api(`/api/admin/lessons/${draft.id}`); state.revision = fresh.revision; } catch {}
+      }
+      if (!sameMaterials(draft.materials, intended)) return;
+      draft.materials.splice(0, draft.materials.length, ...previous);
+      render();
+      showError(error.message);
+    }
+  });
+  materialOrderChain = run.catch(() => {});
+  await run;
+}
 function readForm(draft) {
   const form = $('#lesson-form');
   draft.number = form.number.value.trim();
@@ -683,11 +816,183 @@ async function buildVideos(draft) {
   return items;
 }
 
+function formatWhen(ts) {
+  if (!ts) return 'ещё не заходил';
+  try { return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(ts)); }
+  catch { return '—'; }
+}
+async function loadStats() {
+  const period = state.period || '30';
+  const [stats, resets] = await Promise.all([
+    api('/api/admin/stats?period=' + encodeURIComponent(period)),
+    api('/api/admin/resets'),
+  ]);
+  state.stats = stats;
+  state.resets = resets.requests || [];
+  state.pending = Number(resets.pending) || 0;
+}
+async function openStats() {
+  state.editing = null;
+  state.userForm = null;
+  if (location.hash !== '#stats') location.hash = 'stats';
+  try { await loadStats(); }
+  catch (error) { state.notice = error.message; }
+  renderStats();
+}
+function renderStats() {
+  screen.replaceChildren();
+  screen.append(tabs('stats'));
+  const head = node('div', 'page-head');
+  const copy = node('div');
+  copy.append(node('div', 'eyebrow', 'ШТАБ / СТАТИСТИКА'), node('h1', '', 'Статистика'), node('p', 'lead', 'Кто заходил, какие уроки открывали и кто отметил урок пройденным. Пароль по заявке выдаётся здесь же.'));
+  head.append(copy);
+  screen.append(head);
+  if (state.notice) { const text = state.notice; state.notice = ''; showToast(text); }
+  const periods = node('div', 'chip-set period-set');
+  periods.setAttribute('role', 'group');
+  periods.setAttribute('aria-label', 'Период');
+  for (const [value, label] of [['7', '7 дней'], ['30', '30 дней'], ['all', 'Всё время']]) {
+    const button = node('button', 'chip', label);
+    button.type = 'button';
+    button.setAttribute('aria-checked', String((state.period || '30') === value));
+    button.addEventListener('click', async () => {
+      if ((state.period || '30') === value || state.busy) return;
+      state.period = value;
+      setBusy(true);
+      try { await loadStats(); }
+      catch (error) { state.notice = error.message; }
+      finally { setBusy(false); }
+      renderStats();
+    });
+    periods.append(button);
+  }
+  screen.append(periods);
+  screen.append(resetSection());
+  screen.append(studentSection());
+  screen.append(lessonSection());
+}
+function resetSection() {
+  const section = node('section', 'stat-section');
+  const title = node('h2', '', 'Заявки на пароль');
+  section.append(title);
+  const list = state.resets || [];
+  if (!list.length) {
+    section.append(node('p', 'hint', 'Заявок нет. Если ученик нажмёт «Забыли пароль?», заявка появится здесь.'));
+    return section;
+  }
+  const grid = node('div', 'stat-grid');
+  for (const item of list) grid.append(resetCard(item));
+  section.append(grid);
+  return section;
+}
+function resetCard(item) {
+  const card = node('article', 'stat-card reset-card');
+  if (item.status === 'done') card.classList.add('is-done');
+  card.append(node('h3', '', item.query || 'Без имени'));
+  const meta = node('p', 'hint');
+  const who = item.matchedLogin ? `${item.matchedName || item.matchedLogin} · ${item.matchedLogin}` : 'Учётка не найдена';
+  meta.textContent = `${who} · ${formatWhen(item.createdAt)}`;
+  card.append(meta);
+  if (item.contact) card.append(node('p', 'reset-contact', `Связь: ${item.contact}`));
+  if (item.status === 'done') {
+    card.append(node('p', 'hint', 'Готово'));
+    return card;
+  }
+  const actions = node('div', 'reset-actions');
+  if (item.matchedLogin) {
+    const reset = node('button', 'primary', 'Сбросить пароль');
+    reset.type = 'button';
+    reset.addEventListener('click', () => resetFromRequest(item));
+    actions.append(reset);
+  } else card.append(node('p', 'hint', 'Сбросьте пароль во вкладке «Пользователи», затем отметьте заявку готовой.'));
+  const done = node('button', 'secondary', 'Готово');
+  done.type = 'button';
+  done.addEventListener('click', () => closeRequest(item));
+  actions.append(done);
+  card.append(actions);
+  return card;
+}
+async function resetFromRequest(item) {
+  if (state.busy || !item.matchedLogin) return;
+  const who = item.matchedName || item.matchedLogin;
+  const ok = await ask('Новый пароль', `Старый пароль «${who}» перестанет работать, а текущий вход этого человека закроется.`, 'Сбросить пароль');
+  if (!ok) return;
+  setBusy(true);
+  try {
+    const data = await api(`/api/admin/resets/${item.id}/reset`, { method: 'POST', body: {} });
+    state.pending = Number(data.pending) || 0;
+    const self = item.matchedLogin === state.me;
+    showPassword(data.password, self ? 'Ваш новый пароль' : `Пароль для ${who}`, self);
+    if (!self) await loadStats();
+  } catch (error) { state.notice = error.message; }
+  finally { setBusy(false); }
+  if (item.matchedLogin !== state.me) renderStats();
+}
+async function closeRequest(item) {
+  if (state.busy) return;
+  setBusy(true);
+  try {
+    const data = await api(`/api/admin/resets/${item.id}/done`, { method: 'POST', body: {} });
+    state.pending = Number(data.pending) || 0;
+    state.notice = 'Заявка закрыта.';
+    await loadStats();
+  } catch (error) { state.notice = error.message; }
+  finally { setBusy(false); }
+  renderStats();
+}
+function metric(value, label) {
+  const cell = node('div');
+  cell.append(node('b', '', String(value)), node('span', '', label));
+  return cell;
+}
+function studentSection() {
+  const section = node('section', 'stat-section');
+  section.append(node('h2', '', 'Ученики'));
+  const rows = state.stats?.students || [];
+  if (!state.stats) { section.append(node('p', 'hint', 'Не удалось загрузить статистику.')); return section; }
+  if (!rows.length) { section.append(node('p', 'hint', 'Пока нет учеников.')); return section; }
+  const grid = node('div', 'stat-grid');
+  for (const person of rows) {
+    const card = node('article', 'stat-card');
+    card.append(node('h3', '', person.name || person.login));
+    const login = node('p', 'stat-login', person.login);
+    card.append(login);
+    if (person.disabled) card.append(node('span', 'badge quiet', 'отключён'));
+    card.append(node('p', 'hint', `Последний визит: ${formatWhen(person.lastVisit)}`));
+    const metrics = node('div', 'stat-metrics');
+    metrics.append(metric(person.visits, 'визитов'), metric(person.lessonsOpened, 'уроков открыто'), metric(person.lessonsCompleted, 'уроков пройдено'));
+    card.append(metrics);
+    grid.append(card);
+  }
+  section.append(grid);
+  return section;
+}
+function lessonSection() {
+  const section = node('section', 'stat-section');
+  section.append(node('h2', '', 'Уроки'));
+  const rows = state.stats?.lessons || [];
+  if (!state.stats) return section;
+  if (!rows.length) { section.append(node('p', 'hint', 'В каталоге пока нет уроков.')); return section; }
+  const grid = node('div', 'stat-grid');
+  for (const lesson of rows) {
+    const card = node('article', 'stat-card lesson-stat');
+    const title = `${lesson.number || ''} · ${lesson.title || 'Без названия'}`.replace(/^ · /, '');
+    card.append(node('h3', '', title));
+    if (lesson.status === 'draft') card.append(node('span', 'badge draft', 'черновик'));
+    const metrics = node('div', 'stat-metrics');
+    metrics.append(metric(lesson.opened, 'открыли'), metric(lesson.completed, 'прошли'));
+    card.append(metrics);
+    grid.append(card);
+  }
+  section.append(grid);
+  return section;
+}
 async function openUsers() {
   state.editing = null;
   if (location.hash !== '#users') location.hash = 'users';
   try { state.people = (await api('/api/admin/accounts')).accounts; }
   catch (error) { state.notice = error.message; }
+  try { state.pending = Number((await api('/api/admin/resets')).pending) || 0; } catch {}
   renderUsers();
 }
 function personIsTeacher(person) { return person.role === 'teacher' || person.roles?.includes('teacher'); }
