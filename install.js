@@ -3,7 +3,15 @@ export function registerShell() {
   const host = location.hostname;
   const secure = location.protocol === 'https:' || host === 'localhost' || host === '127.0.0.1';
   if (!secure) return;
-  navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    try { if (sessionStorage.getItem('smm-sw-reload') === '1') return; sessionStorage.setItem('smm-sw-reload', '1'); } catch {}
+    location.reload();
+  });
+  navigator.serviceWorker.register('./sw.js', { scope: './', updateViaCache: 'none' }).then(reg => reg.update()).catch(() => {});
 }
 
 export function armInstallHint() {

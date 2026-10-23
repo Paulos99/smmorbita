@@ -391,12 +391,14 @@ function paintProgress() {
     const base = `${lesson.title}, досье ${lesson.number}`;
     tab.setAttribute('aria-label', on ? `${base}, урок пройден` : base);
   }
-  const button = $('#lesson-done');
   const lesson = lessons[current];
-  if (button && lesson) {
+  const end = ensureDoneEnd();
+  if (end) end.hidden = viewerIsTeacher || !lesson;
+  for (const button of [$('#lesson-done'), $('#lesson-done-end')]) if (button && lesson) {
     const on = doneLessons.has(String(lesson.id));
     button.setAttribute('aria-pressed', String(on));
     button.setAttribute('aria-label', on ? 'Урок пройден. Нажмите, чтобы снять отметку.' : 'Отметить: урок пройден');
+    if (button.id === 'lesson-done-end') { const cap = $('#lesson-done-cap'); if (cap) cap.textContent = on ? 'Отлично, урок отмечен! Передумали — нажмите ещё раз.' : 'Всё изучили? Нажмите, чтобы отметить урок 👇'; }
   }
 }
 function armCabinetBadge(link) {
@@ -1154,15 +1156,28 @@ class PhotoLightbox {
     if (ahead) { const pre = new Image(); pre.decoding = 'async'; pre.src = ahead; }
   }
 }
-$('#lesson-done')?.addEventListener('click', async () => {
+function ensureDoneEnd() {
+  let box = $('#lesson-done-box');
+  if (box) return box;
+  const anchor = $('.lesson-ending');
+  if (!anchor) return null;
+  box = node('div', 'lesson-done-box'); box.id = 'lesson-done-box'; box.hidden = true;
+  const cap = node('p', 'lesson-done-cap', 'Всё изучили? Нажмите, чтобы отметить урок 👇'); cap.id = 'lesson-done-cap';
+  const btn = node('button', 'lesson-done lesson-done-end', 'Урок пройден'); btn.type = 'button'; btn.id = 'lesson-done-end'; btn.setAttribute('aria-pressed', 'false');
+  btn.addEventListener('click', toggleDone);
+  box.append(cap, btn); anchor.before(box); return box;
+}
+$('#lesson-done')?.addEventListener('click', toggleDone);
+async function toggleDone() {
   const lesson = lessons[current];
   const button = $('#lesson-done');
+  const end = $('#lesson-done-end');
   if (!lesson || !button || button.disabled) return;
   const id = String(lesson.id);
   const next = !doneLessons.has(id);
   if (next) doneLessons.add(id); else doneLessons.delete(id);
   paintProgress();
-  button.disabled = true;
+  button.disabled = true; if (end) end.disabled = true;
   try {
     const response = await fetch('/api/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lessonId: id, completed: next }) });
     if (!response.ok) throw new Error();
@@ -1170,8 +1185,8 @@ $('#lesson-done')?.addEventListener('click', async () => {
     if (next) doneLessons.delete(id); else doneLessons.add(id);
     paintProgress();
     setAnnouncement('Не удалось сохранить отметку. Попробуйте ещё раз.');
-  } finally { button.disabled = false; }
-});
+  } finally { button.disabled = false; if (end) end.disabled = false; }
+}
 $('#previous-lesson').addEventListener('click', () => selectLesson(current - 1, true));
 $('#next-lesson').addEventListener('click', () => selectLesson(current + 1, true));
 async function apiRetry(path){let last;for(let i=0;i<3;i++){const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),15000);try{const r=await fetch(path,{signal:ctl.signal});clearTimeout(t);if(r.status<500||i===2)return r;last=new Error(path+' HTTP '+r.status);}catch(e){clearTimeout(t);last=e;}await new Promise(r=>setTimeout(r,800*(i+1)));}throw last;}
@@ -1218,5 +1233,5 @@ const __loaded=Date.now();document.addEventListener('visibilitychange',()=>{if(d
 
 const NEWS_END=Date.parse('2026-10-30T23:59:59+03:00');
 const NEWS_ITEMS={teacher:[['🌍','Работает с VPN и без.','Ученикам не нужно выключать VPN, чтобы войти.'],['📊','Статистика','Видно, кто и когда заходил, какие уроки открывал и прошёл.'],['✅','Прогресс учеников','Сколько уроков прошёл каждый ученик.'],['🔑','«Забыли пароль?»','Заявка от ученика приходит вам в кабинет, новый пароль выдаётся в один клик.'],['🪪','Логин создаётся сам','Он формируется из имени и фамилии, например P_Antsibor.'],['↕️','Порядок материалов','Материалы урока можно перетаскивать мышкой или пальцем.'],['🧩','Урок собирается из того, что вы добавили','Ученик видит только заполненные блоки, их может быть сколько угодно.'],['📱','Приложение на телефоне','Сайт можно добавить на экран телефона с иконкой школы.']],student:[['🌍','Теперь штаб работает с VPN и без.','Заходите как угодно.'],['✅','Отмечайте пройденные уроки','Нажали «Урок пройден», и шкала прогресса поползла вперёд.'],['🔑','Забыли пароль?','Жмите кнопку на входе, преподаватель выручит.'],['📱','Штаб в кармане','Добавьте сайт на экран телефона, и он будет открываться с иконкой школы, как приложение.']]};
-function showNews(account){try{if(Date.now()>NEWS_END||typeof HTMLDialogElement!=='function')return;const key='smm-news-2026-10:'+(account.login||account.email||account.name||'');if(localStorage.getItem(key))return;const role=account.role==='teacher'?'teacher':'student';const el=(t,c,x)=>{const n=document.createElement(t);if(c)n.className=c;if(x)n.textContent=x;return n;};const d=el('dialog','news-dialog');d.setAttribute('aria-labelledby','news-title');const head=el('div','news-head');const eb=el('span','eyebrow');eb.append(el('span','red-line'),document.createTextNode('ОБНОВЛЕНИЕ'));const x=el('button','icon-button','✕');x.type='button';x.setAttribute('aria-label','Закрыть');head.append(eb,x);const h=el('h2','news-title');h.append(document.createTextNode('Что нового в штабе '));const tag=el('span','news-tag','НОВОЕ');tag.setAttribute('aria-hidden','true');h.append(tag);const art=el('img','news-art');art.src='./assets/accepted.webp';art.alt='';art.setAttribute('aria-hidden','true');h.id='news-title';const list=el('ul','news-list');for(const [i,t,s] of NEWS_ITEMS[role]){const li=el('li','news-card');const ic=el('span','news-icon');ic.setAttribute('aria-hidden','true');if(NEWS_STICKERS[i]){const im=el('img');const n=NEWS_STICKERS[i];im.src=`./assets/news/news-${n}.webp`;im.srcset=`./assets/news/news-${n}.webp 1x, ./assets/news/news-${n}@2x.webp 2x`;im.alt='';im.width=64;im.height=64;im.decoding='async';ic.append(im);}else ic.textContent=i;ic.style.setProperty('--tilt',((li.dataset.n=list.children.length)%2?1:-1)*(4+(list.children.length*3)%5)+'deg');const tx=el('div');tx.append(el('strong','',t),el('span','',s));li.append(ic,tx);list.append(li);}const ok=el('button','button primary news-ok','Понятно');ok.type='button';const top=el('div','news-top');top.append(head,h,art);d.tabIndex=-1;d.append(top,list,ok);document.body.append(d);const close=()=>{try{localStorage.setItem(key,String(Date.now()));}catch{}if(d.open)d.close();};x.addEventListener('click',close);ok.addEventListener('click',close);d.addEventListener('cancel',e=>{e.preventDefault();close();});d.addEventListener('close',()=>{document.body.classList.remove('no-scroll');d.remove();});d.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const f=[x,ok];const i=f.indexOf(document.activeElement);if(e.shiftKey&&i<=0){e.preventDefault();ok.focus();}else if(!e.shiftKey&&i===f.length-1){e.preventDefault();x.focus();}});d.addEventListener('click',e=>{if(e.target===d)close();});document.body.classList.add('no-scroll');d.showModal();d.focus({preventScroll:true});d.scrollTop=0;list.scrollTop=0;}catch(e){console.warn('news',e);}}
+function showNews(account){try{if(Date.now()>NEWS_END||typeof HTMLDialogElement!=='function')return;const key='smm-news-2026-10:'+(account.login||account.email||account.name||'');if(localStorage.getItem(key))return;const role=(account.role==='teacher'||(Array.isArray(account.roles)&&account.roles.includes('teacher')))?'teacher':'student';const el=(t,c,x)=>{const n=document.createElement(t);if(c)n.className=c;if(x)n.textContent=x;return n;};const d=el('dialog','news-dialog');d.setAttribute('aria-labelledby','news-title');const head=el('div','news-head');const eb=el('span','eyebrow');eb.append(el('span','red-line'),document.createTextNode('ОБНОВЛЕНИЕ'));const x=el('button','icon-button','✕');x.type='button';x.setAttribute('aria-label','Закрыть');head.append(eb,x);const h=el('h2','news-title');h.append(document.createTextNode('Что нового в штабе '));const tag=el('span','news-tag','НОВОЕ');tag.setAttribute('aria-hidden','true');h.append(tag);const art=el('img','news-art');art.src='./assets/accepted.webp';art.alt='';art.setAttribute('aria-hidden','true');h.id='news-title';const list=el('ul','news-list');for(const [i,t,s] of NEWS_ITEMS[role]){const li=el('li','news-card');const ic=el('span','news-icon');ic.setAttribute('aria-hidden','true');if(NEWS_STICKERS[i]){const im=el('img');const n=NEWS_STICKERS[i];im.src=`./assets/news/news-${n}.webp`;im.srcset=`./assets/news/news-${n}.webp 1x, ./assets/news/news-${n}@2x.webp 2x`;im.alt='';im.width=64;im.height=64;im.decoding='async';ic.append(im);}else ic.textContent=i;ic.style.setProperty('--tilt',((li.dataset.n=list.children.length)%2?1:-1)*(4+(list.children.length*3)%5)+'deg');const tx=el('div');tx.append(el('strong','',t),el('span','',s));li.append(ic,tx);list.append(li);}const ok=el('button','button primary news-ok','Понятно');ok.type='button';const top=el('div','news-top');top.append(head,h,art);d.tabIndex=-1;d.append(top,list,ok);document.body.append(d);const close=()=>{try{localStorage.setItem(key,String(Date.now()));}catch{}if(d.open)d.close();};x.addEventListener('click',close);ok.addEventListener('click',close);d.addEventListener('cancel',e=>{e.preventDefault();close();});d.addEventListener('close',()=>{document.body.classList.remove('no-scroll');d.remove();});d.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const f=[x,ok];const i=f.indexOf(document.activeElement);if(e.shiftKey&&i<=0){e.preventDefault();ok.focus();}else if(!e.shiftKey&&i===f.length-1){e.preventDefault();x.focus();}});d.addEventListener('click',e=>{if(e.target===d)close();});document.body.classList.add('no-scroll');d.showModal();d.focus({preventScroll:true});d.scrollTop=0;list.scrollTop=0;}catch(e){console.warn('news',e);}}
 const NEWS_STICKERS={"🌍": "vpn", "📊": "stats", "✅": "progress", "🔑": "key", "🪪": "login", "↕️": "drag", "🧩": "puzzle", "📱": "phone"};

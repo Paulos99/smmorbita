@@ -1,4 +1,4 @@
-const CACHE = 'smm-shell-v8';
+const CACHE = 'smm-shell-v9';
 const SHELL = [
   './',
   './index.html',
@@ -24,7 +24,7 @@ const SHELL = [
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {
@@ -68,11 +68,14 @@ self.addEventListener('fetch', event => {
 async function serveShell(event, request) {
   const cache = await caches.open(CACHE);
   const cached = await cache.match(request);
-  const refresh = fetch(request).then(response => {
+  const refresh = fetch(request, { cache: 'no-cache' }).then(response => {
     if (response && response.ok && response.type === 'basic') return cache.put(request, response.clone()).then(() => response);
     return response;
   }).catch(() => null);
   if (cached) {
+    // Network-first with a short timeout so updated code reaches users on the first load.
+    const timed = await Promise.race([refresh, new Promise(r => setTimeout(() => r(null), 3500))]);
+    if (timed && timed.ok) return timed;
     event.waitUntil(refresh);
     return cached;
   }
