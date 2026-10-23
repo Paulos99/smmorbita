@@ -1,6 +1,6 @@
-import {API,getToken,clearToken} from './auth.js?v=20261023f';
-import {registerShell,armInstallHint} from './install.js?v=20261023f';
-import {showNews} from './news.js?v=20261023f';
+import {API,getToken,clearToken} from './auth.js?v=20261023g';
+import {registerShell,armInstallHint} from './install.js?v=20261023g';
+import {showNews} from './news.js?v=20261023g';
 registerShell();
 if(!getToken()){location.replace('./login.html');throw new Error('auth');}
 armInstallHint();
