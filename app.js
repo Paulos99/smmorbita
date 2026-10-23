@@ -8,7 +8,7 @@ const node = (tag, className, text) => {
   const e = document.createElement(tag); if (className) e.className = className;
   if (text != null) e.textContent = text; return e;
 };
-let lessons = [], current = 0, epoch = 0, pdfModule, catalogExpireAt = 0;
+let lessons = [], current = 0, epoch = 0, pdfModule, catalogExpireAt = 0, viewerIsTeacher = false;
 const mediaTimers = [];
 const reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 function armTape() {
@@ -483,6 +483,7 @@ async function selectLesson(index, scroll = false) {
   $('#workbook-view').replaceChildren(workbookPlaceholder());
   const shown = (lesson.materials?.length || 0) + (lesson.videos?.length || 0) + (lesson.pages?.length || 0);
   $('#material-count').textContent = `${shown} ${fileWord(shown).toUpperCase()}`;
+  applySectionVisibility(lesson);
   if (lesson.presentation) {
     $('#presentation-view').replaceChildren();
     await mountPreview($('#presentation-view'), lesson.presentation, inlineViewers, () => epoch === version);
@@ -499,6 +500,7 @@ async function selectLesson(index, scroll = false) {
     $('#workbook-view').replaceChildren(fileList([lesson.workbook], lesson.id));
     if (lesson.workbook.checks?.length) renderChecks($('#workbook-view'), lesson.workbook.checks, lesson.id);
   }
+  applySectionVisibility(lesson);
   $('#lesson-position').textContent = `${lesson.number} / ${String(lessons.length).padStart(2, '0')}`;
   $('#previous-lesson').disabled = index === 0; $('#next-lesson').disabled = index === lessons.length - 1;
   armReveals($('#lesson'));
@@ -512,6 +514,35 @@ async function selectLesson(index, scroll = false) {
   if (lesson.presentation) track('material', lesson.id, 'presentation');
   if (lesson.lecture) track('material', lesson.id, 'lecture');
   if (lesson.workbook) track('material', lesson.id, 'workbook');
+}
+// Students see only sections that have content; teachers still see empty ones (marked) so they know what to add.
+const SECTION_IDS = ['presentation', 'lecture', 'materials', 'workbook', 'shared'];
+function sectionHasContent(id, lesson) {
+  if (id === 'presentation') return Boolean(lesson.presentation);
+  if (id === 'lecture') return Boolean(lesson.lecture);
+  if (id === 'workbook') return Boolean(lesson.workbook);
+  if (id === 'materials') return Boolean(lesson.videos?.length || lesson.pages?.length || lesson.materials?.length);
+  return Boolean($('#shared-files')?.childElementCount || $('#useful-links')?.childElementCount);
+}
+function applySectionVisibility(lesson) {
+  let n = 0;
+  for (const id of SECTION_IDS) {
+    const section = document.getElementById(id), link = document.querySelector(`.outline nav a[href="#${id}"]`);
+    if (!section) continue;
+    const has = sectionHasContent(id, lesson), show = has || viewerIsTeacher;
+    section.hidden = !show; if (link) link.hidden = !show;
+    section.classList.toggle('is-empty', !has);
+    let hint = section.querySelector(':scope > .empty-hint');
+    if (!has && viewerIsTeacher) { if (!hint) { hint = node('p', 'empty-hint', 'Пусто — ученики этот раздел не видят'); section.querySelector('.section-heading')?.after(hint); } }
+    else hint?.remove();
+    for (const a of section.querySelectorAll('.section-heading a.download')) a.hidden = !viewerIsTeacher && a.getAttribute('aria-disabled') === 'true';
+    if (!show) continue;
+    n += 1; const num = String(n).padStart(2, '0');
+    if (link?.firstElementChild) link.firstElementChild.textContent = num;
+    const index = section.querySelector('.section-heading .section-index');
+    if (index && /^\d\d \/ /.test(index.textContent)) index.textContent = index.textContent.replace(/^\d\d/, num);
+  }
+  $('#lesson').classList.toggle('lesson-empty', !n);
 }
 function fileWord(n) { return n % 10 === 1 && n % 100 !== 11 ? 'файл' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'файла' : 'файлов'; }
 function lessonMedia(lesson) {
@@ -1155,7 +1186,7 @@ const sectionObserver = new IntersectionObserver(entries => {
 }, {rootMargin:'-95px 0px -55% 0px',threshold:0});
 for (const section of document.querySelectorAll('.resource-section')) sectionObserver.observe(section);
 try {
-  const identity=await apiRetry('/api/session');if(!identity.ok)throw new Error('session HTTP '+identity.status);const account=(await identity.json()).user;const role=account.role==='teacher'?'Преподаватель':'Ученик';$('#account-name').textContent=account.name===role?role:`${account.name} · ${role}`;if(account.role==='teacher'){const cab=document.createElement('a');cab.className='help-button';cab.href='./admin.html';cab.textContent='Кабинет';$('#account-name').after(cab);armCabinetBadge(cab);}if(Array.isArray(account.roles)){const label=r=>r==='teacher'?'Преподаватель':r==='student'?'Ученик':r;const sel=document.createElement('select');sel.id='role-switch';sel.setAttribute('aria-label','Роль');sel.className='role-switch';for(const r of account.roles){const o=document.createElement('option');o.value=r;o.textContent='Роль: '+label(r);o.selected=r===account.role;sel.append(o);}sel.addEventListener('change',async()=>{const res=await fetch('/api/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sel.value})});if(res.ok){try{localStorage.setItem('smm-role',sel.value);}catch{}location.reload();}});$('#account-name').after(sel);}
+  const identity=await apiRetry('/api/session');if(!identity.ok)throw new Error('session HTTP '+identity.status);const account=(await identity.json()).user;viewerIsTeacher=account.role==='teacher';const role=account.role==='teacher'?'Преподаватель':'Ученик';$('#account-name').textContent=account.name===role?role:`${account.name} · ${role}`;if(account.role==='teacher'){const cab=document.createElement('a');cab.className='help-button';cab.href='./admin.html';cab.textContent='Кабинет';$('#account-name').after(cab);armCabinetBadge(cab);}if(Array.isArray(account.roles)){const label=r=>r==='teacher'?'Преподаватель':r==='student'?'Ученик':r;const sel=document.createElement('select');sel.id='role-switch';sel.setAttribute('aria-label','Роль');sel.className='role-switch';for(const r of account.roles){const o=document.createElement('option');o.value=r;o.textContent='Роль: '+label(r);o.selected=r===account.role;sel.append(o);}sel.addEventListener('change',async()=>{const res=await fetch('/api/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sel.value})});if(res.ok){try{localStorage.setItem('smm-role',sel.value);}catch{}location.reload();}});$('#account-name').after(sel);}
   const response = await apiRetry('/api/lessons'); if (!response.ok) throw new Error('lessons HTTP '+response.status);
   const data = await response.json(); lessons = data.lessons;
   try { const progress = await fetch('/api/progress'); if (progress.ok) { const body = await progress.json(); doneLessons.clear(); for (const id of body.completed || []) doneLessons.add(String(id)); } } catch {}

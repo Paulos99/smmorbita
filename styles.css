@@ -372,3 +372,5 @@ a.help-button .cab-badge{display:inline-flex;align-items:center;justify-content:
 .install-hint button{min-height:44px;border-radius:999px;border:1px solid #4a4a4a;background:#242424;color:#f4f4eb;padding:8px 14px}
 .install-hint .install-go{background:#335f95;border-color:#6599d9;color:#fff}
 .install-hint .install-dismiss{width:44px;padding:0;flex:0 0 44px}
+
+.resource-section[hidden],.outline nav a[hidden],.section-heading a[hidden]{display:none!important}.empty-hint{margin:-6px 0 14px;font-size:11px;color:#c7b774;border:1px dashed #5a5540;border-radius:8px;padding:8px 12px;width:fit-content}.resource-section.is-empty>:not(.section-heading):not(.empty-hint){opacity:.55}.media-list>*{min-width:0}
