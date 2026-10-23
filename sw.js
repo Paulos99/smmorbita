@@ -1,4 +1,4 @@
-const CACHE = 'smm-shell-v15';
+const CACHE = 'smm-shell-v16';
 const SHELL = [
   './',
   './index.html',
