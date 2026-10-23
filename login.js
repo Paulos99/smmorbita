@@ -1,9 +1,10 @@
-import {API,getToken,setToken} from './auth.js?v=20261023e';
-import {registerShell,armInstallHint} from './install.js?v=20261023e';
+import {API,getToken,setToken} from './auth.js?v=20261023f';
+import {registerShell,armInstallHint} from './install.js?v=20261023f';
 registerShell();
 if(getToken())location.replace('./');
 else armInstallHint();
 const form=document.querySelector('#login-form'),error=document.querySelector('#login-error'),submit=document.querySelector('#submit'),password=document.querySelector('#password'),toggle=document.querySelector('#toggle-password');
+if(new URLSearchParams(location.search).has('expired')&&error)error.textContent='Срок доступа к материалам закончился. Обратитесь к преподавателю.';
 const reduceMotion=typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
 function rejectLogin(message){
   error.textContent=message;

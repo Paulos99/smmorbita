@@ -1,5 +1,5 @@
-import { API, getToken, clearToken } from './auth.js?v=20261023e';
-import { showNews } from './news.js?v=20261023e';
+import { API, getToken, clearToken } from './auth.js?v=20261023f';
+import { showNews } from './news.js?v=20261023f';
 import { docxToSections, linesFromSections } from './docx.js';
 import { pdfToWebpBlobs, textToWebpBlobs } from './previews.js';
 import { packLessonHtml } from './htmlpack.js';
@@ -32,7 +32,7 @@ async function api(path, { method = 'GET', body } = {}) {
   try { const role = localStorage.getItem('smm-role'); if (role) headers.set('X-School-Role', role); } catch {}
   if (body != null) headers.set('Content-Type', 'application/json');
   const response = await fetch(apiBase() + path, { method, headers, body: body != null ? JSON.stringify(body) : undefined, credentials: token ? 'omit' : 'same-origin' });
-  if (response.status === 401) { clearToken(); location.replace('./login.html'); throw new Error('Нужно войти снова.'); }
+  if (response.status === 401) { let expired = false; try { expired = (await response.clone().json()).code === 'access_expired'; } catch {} clearToken(); location.replace(expired ? './login.html?expired=1' : './login.html'); throw new Error('Нужно войти снова.'); }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw Object.assign(new Error(data.error || 'Не удалось выполнить запрос. Попробуйте ещё раз.'), { status: response.status });
   return data;
@@ -1093,6 +1093,10 @@ async function openUsers() {
   try { state.pending = Number((await api('/api/admin/resets')).pending) || 0; } catch {}
   renderUsers();
 }
+function mskToday() { return new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10); }
+function ruDate(iso) { const [y, m, d] = String(iso).split('-'); return `${d}.${m}.${y}`; }
+// Whole days until the end of the access day (23:59 Moscow time).
+function daysLeft(iso) { return Math.floor((Date.parse(`${iso}T23:59:59+03:00`) - Date.now()) / 86400e3); }
 function personIsTeacher(person) { return person.role === 'teacher' || person.roles?.includes('teacher'); }
 function roleTitle(person) { return personIsTeacher(person) ? 'Преподаватель' : 'Ученик'; }
 function lessonTitle(id) {
@@ -1218,7 +1222,7 @@ function renderUsers() {
   const add = node('button', 'primary', 'Добавить пользователя');
   add.type = 'button';
   add.addEventListener('click', () => {
-    state.userForm = { mode: 'create', login: '', first: '', last: '', name: '', role: 'student', lessons: new Set(), error: '', loginManual: false };
+    state.userForm = { mode: 'create', login: '', first: '', last: '', name: '', role: 'student', lessons: new Set(), accessUntil: '', error: '', loginManual: false };
     renderUsers();
     $('#user-first')?.focus();
   });
@@ -1524,6 +1528,7 @@ function userKebab(person) {
         name: person.name,
         role: personIsTeacher(person) ? 'teacher' : 'student',
         lessons: new Set(person.lessons || []),
+        accessUntil: person.accessUntil || '',
         error: '',
       };
       renderUsers();
@@ -1586,6 +1591,12 @@ function userRow(person) {
   nameCell.append(sub);
   const roleCell = node('td', teacher ? 'nowrap user-role is-teacher' : 'nowrap user-role', roleTitle(person));
   roleCell.dataset.label = 'Роль';
+  if (!teacher && person.accessUntil) {
+    const left = daysLeft(person.accessUntil);
+    const badge = node('span', left < 7 ? 'access-until is-soon' : 'access-until', `до ${ruDate(person.accessUntil)}`);
+    badge.title = left < 7 ? `Доступ закончится через ${Math.max(0, left)} дн.` : 'Доступ к материалам до этой даты включительно';
+    roleCell.append(badge);
+  }
   const lessonsCell = node('td', 'lessons-cell', lessons);
   lessonsCell.dataset.label = 'Уроки';
   lessonsCell.title = lessons;
@@ -1706,6 +1717,16 @@ function userForm(draft) {
     choices.append(label);
   }
   form.append(choices);
+  const until = node('div', 'field access-until-field'); until.id = 'access-until-field';
+  until.append(node('span', '', 'ДОСТУП ДО'));
+  const untilRow = node('div', 'access-until-row');
+  const untilInput = node('input'); untilInput.type = 'date'; untilInput.id = 'user-access-until'; untilInput.name = 'accessUntil'; untilInput.value = draft.accessUntil || ''; untilInput.min = mskToday();
+  const untilClear = node('button', 'mini', 'Без срока'); untilClear.type = 'button'; untilClear.addEventListener('click', () => { untilInput.value = ''; });
+  untilRow.append(untilInput, untilClear);
+  until.append(untilRow, node('small', 'hint', 'Пусто — без ограничений. Доступ работает до 23:59 по Москве в этот день, потом закроется, а аккаунт ученика удалится вместе с его статистикой.'));
+  const syncUntil = () => { until.hidden = (form.querySelector('input[name=user-role]:checked')?.value || draft.role) !== 'student'; };
+  choices.addEventListener('change', syncUntil); syncUntil();
+  form.append(until);
   form.append(node('p', 'hint', 'Отметьте уроки ученика. Если не отмечать ничего — ему видны все. Преподавателю открыты все уроки в любом случае.'));
   const picks = node('div', 'lesson-picks');
   const lessons = [...state.lessons].sort((a, b) => String(a.number).localeCompare(String(b.number), 'ru', { numeric: true }));
@@ -1763,6 +1784,7 @@ function readUserForm() {
   } else draft.name = form.name.value.trim();
   draft.role = form.querySelector('input[name=user-role]:checked')?.value || 'student';
   draft.lessons = new Set([...form.querySelectorAll('input[name=lesson]:checked')].map(input => input.value));
+  draft.accessUntil = draft.role === 'student' ? ($('#user-access-until', form)?.value || '') : '';
   return draft;
 }
 async function saveUser() {
@@ -1778,6 +1800,7 @@ async function saveUser() {
     const lessons = [...draft.lessons];
     if (draft.mode === 'create') {
       const payload = { name: `${draft.first} ${draft.last}`, firstName: draft.first, lastName: draft.last, role: draft.role, lessons };
+      if (draft.role === 'student' && draft.accessUntil) payload.accessUntil = draft.accessUntil;
       if (draft.loginManual) payload.login = draft.login;
       const data = await api('/api/admin/accounts', { method: 'POST', body: payload });
       state.userForm = null;
@@ -1786,7 +1809,7 @@ async function saveUser() {
       showPassword(data.password, `Вход для ${data.account.name}`, false, data.account.login);
       await refreshPeople();
     } else {
-      await api(`/api/admin/accounts/${encodeURIComponent(draft.login)}`, { method: 'PATCH', body: { name: draft.name, role: draft.role, lessons } });
+      await api(`/api/admin/accounts/${encodeURIComponent(draft.login)}`, { method: 'PATCH', body: { name: draft.name, role: draft.role, lessons, ...(draft.role === 'student' ? { accessUntil: draft.accessUntil } : {}) } });
       state.userForm = null;
       state.notice = 'Изменения сохранены.';
       await refreshPeople();

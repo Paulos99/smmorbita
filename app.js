@@ -1,6 +1,6 @@
-import {API,getToken,clearToken} from './auth.js?v=20261023e';
-import {registerShell,armInstallHint} from './install.js?v=20261023e';
-import {showNews} from './news.js?v=20261023e';
+import {API,getToken,clearToken} from './auth.js?v=20261023f';
+import {registerShell,armInstallHint} from './install.js?v=20261023f';
+import {showNews} from './news.js?v=20261023f';
 registerShell();
 if(!getToken()){location.replace('./login.html');throw new Error('auth');}
 armInstallHint();
@@ -298,7 +298,7 @@ function syncScrollLock() {
   document.body.classList.toggle('no-scroll', Boolean(document.querySelector('dialog[open], .is-stage-full')));
 }
 const originalFetch = window.fetch.bind(window);
-window.fetch = async (input, init = {}) => { let url=String(input); if (url.startsWith('/api/')) { url=API+url; const h=new Headers(init.headers||{}); h.set('X-School-Token',getToken()); try{const r=localStorage.getItem('smm-role');if(r)h.set('X-School-Role',r);}catch{} init={...init,headers:h,credentials:'omit'}; } const response = await originalFetch(url, init); if (response.status === 401 && url !== String(input)) { clearToken(); location.replace('./login.html'); } return response; };
+window.fetch = async (input, init = {}) => { let url=String(input); if (url.startsWith('/api/')) { url=API+url; const h=new Headers(init.headers||{}); h.set('X-School-Token',getToken()); try{const r=localStorage.getItem('smm-role');if(r)h.set('X-School-Role',r);}catch{} init={...init,headers:h,credentials:'omit'}; } const response = await originalFetch(url, init); if (response.status === 401 && url !== String(input)) { let expired = false; try { expired = (await response.clone().json()).code === 'access_expired'; } catch {} clearToken(); location.replace(expired ? './login.html?expired=1' : './login.html'); } return response; };
 $('#logout-button').addEventListener('click',async()=>{const button=$('#logout-button');button.disabled=true;try{await Promise.race([fetch('/api/logout',{method:'POST'}),new Promise(r=>setTimeout(r,3000))]);}catch(e){console.warn('logout request failed',e);}clearToken();location.replace('./login.html');});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')fetch('/api/session').catch(()=>{});});
 setInterval(()=>fetch('/api/session').catch(()=>{}),60000);

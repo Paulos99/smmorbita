@@ -387,3 +387,5 @@ a.help-button .cab-badge{display:inline-flex;align-items:center;justify-content:
 .lesson-done.lesson-done-end:hover{filter:brightness(1.05)}
 .lesson-done.lesson-done-end:focus-visible{outline:3px solid #fff;outline-offset:3px}
 .lesson-done.lesson-done-end[aria-pressed=true]{background:#1c3b28;border-color:#3e7a52;color:#e7ffef}
+@media(min-width:900px){.news-dialog{width:min(700px,calc(100% - 24px))}.news-dialog .news-list{gap:5px}.news-card{padding:5px 14px}}
+@media(min-width:900px){.news-icon{flex-basis:48px;width:48px;height:48px}}
