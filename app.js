@@ -1,6 +1,6 @@
-import {API,getToken,clearToken} from './auth.js?v=20261023d';
-import {registerShell,armInstallHint} from './install.js?v=20261023d';
-import {showNews} from './news.js?v=20261023d';
+import {API,getToken,clearToken} from './auth.js?v=20261023e';
+import {registerShell,armInstallHint} from './install.js?v=20261023e';
+import {showNews} from './news.js?v=20261023e';
 registerShell();
 if(!getToken()){location.replace('./login.html');throw new Error('auth');}
 armInstallHint();
@@ -486,6 +486,7 @@ async function selectLesson(index, scroll = false) {
   $('#workbook-view').replaceChildren(workbookPlaceholder());
   const shown = (lesson.materials?.length || 0) + (lesson.videos?.length || 0) + (lesson.pages?.length || 0);
   $('#material-count').textContent = `${shown} ${fileWord(shown).toUpperCase()}`;
+  orderSections(lesson);
   applySectionVisibility(lesson);
   if (lesson.presentation) {
     $('#presentation-view').replaceChildren();
@@ -519,7 +520,27 @@ async function selectLesson(index, scroll = false) {
   if (lesson.workbook) track('material', lesson.id, 'workbook');
 }
 // Students see only sections that have content; teachers still see empty ones (marked) so they know what to add.
-const SECTION_IDS = ['presentation', 'lecture', 'materials', 'workbook', 'shared'];
+let SECTION_IDS = ['presentation', 'lecture', 'materials', 'workbook', 'shared'];
+const SECTION_KEYS = ['presentation', 'lecture', 'videos', 'pages', 'materials', 'workbook'];
+const SECTION_DOM = { presentation: 'presentation', lecture: 'lecture', videos: 'materials', pages: 'materials', materials: 'materials', workbook: 'workbook' };
+function lessonSectionOrder(lesson) {
+  const value = Array.isArray(lesson?.sectionOrder) ? lesson.sectionOrder : [];
+  const list = value.filter((key, i) => SECTION_KEYS.includes(key) && value.indexOf(key) === i);
+  return [...list, ...SECTION_KEYS.filter(key => !list.includes(key))];
+}
+// Teacher-chosen order: move the lesson sections and their outline links; «Общий арсенал» always stays last.
+function orderSections(lesson) {
+  const ids = [...new Set(lessonSectionOrder(lesson).map(key => SECTION_DOM[key]))];
+  SECTION_IDS = [...ids, 'shared'];
+  const shared = document.getElementById('shared'), nav = document.querySelector('.outline nav');
+  const sharedLink = nav?.querySelector('a[href="#shared"]');
+  for (const id of ids) {
+    const section = document.getElementById(id);
+    if (section && shared && section.parentNode === shared.parentNode) shared.before(section);
+    const link = nav?.querySelector(`a[href="#${id}"]`);
+    if (link) sharedLink ? sharedLink.before(link) : nav.append(link);
+  }
+}
 function sectionHasContent(id, lesson) {
   if (id === 'presentation') return Boolean(lesson.presentation);
   if (id === 'lecture') return Boolean(lesson.lecture);
@@ -549,20 +570,19 @@ function applySectionVisibility(lesson) {
 }
 function fileWord(n) { return n % 10 === 1 && n % 100 !== 11 ? 'файл' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'файла' : 'файлов'; }
 function lessonMedia(lesson) {
-  const wrap = node('div');
+  const wrap = node('div'), parts = {};
   if (lesson.videos?.length) {
-    wrap.append(node('h4', 'media-kicker', 'Видео'));
     const list = node('div', 'media-list');
     for (const video of lesson.videos) list.append(video.kind === 'embed' ? renderEmbed(video, lesson.id) : renderVideo(video, lesson.id));
-    wrap.append(list);
+    parts.videos = [node('h4', 'media-kicker', 'Видео'), list];
   }
   if (lesson.pages?.length) {
-    wrap.append(node('h4', 'media-kicker', 'Страницы'));
     const list = node('div', 'media-list');
     for (const page of lesson.pages) list.append(renderHtmlPage(page, lesson.id));
-    wrap.append(list);
+    parts.pages = [node('h4', 'media-kicker', 'Страницы'), list];
   }
-  if (lesson.materials?.length) wrap.append(fileList(lesson.materials, lesson.id));
+  if (lesson.materials?.length) parts.materials = [fileList(lesson.materials, lesson.id)];
+  for (const key of lessonSectionOrder(lesson)) if (parts[key]) wrap.append(...parts[key]);
   return wrap;
 }
 const EMBED_HOSTS = new Set(['www.youtube-nocookie.com', 'vk.com', 'rutube.ru', 'player.vimeo.com', 'www.loom.com', 'drive.google.com', 'kinescope.io', 'ok.ru', 't.me', 'dzen.ru']);

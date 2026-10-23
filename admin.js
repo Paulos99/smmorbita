@@ -1,5 +1,5 @@
-import { API, getToken, clearToken } from './auth.js?v=20261023d';
-import { showNews } from './news.js?v=20261023d';
+import { API, getToken, clearToken } from './auth.js?v=20261023e';
+import { showNews } from './news.js?v=20261023e';
 import { docxToSections, linesFromSections } from './docx.js';
 import { pdfToWebpBlobs, textToWebpBlobs } from './previews.js';
 import { packLessonHtml } from './htmlpack.js';
@@ -287,7 +287,7 @@ function confirmDelete(lesson) {
 
 function blank() {
   const numbers = state.lessons.map(lesson => Number(lesson.number)).filter(number => Number.isInteger(number));
-  return { id: null, number: String((numbers.length ? Math.max(...numbers) : 0) + 1).padStart(2, '0'), title: '', description: '', status: 'draft', accessMode: 'all', logins: new Set(), pdfFile: null, pptxFile: null, presentation: null, clearPresentation: false, lectureFile: null, lecture: null, lectureNote: '', clearLecture: false, workbookFile: null, workbook: null, clearWorkbook: false, materials: [], pages: [], videos: [] };
+  return { id: null, number: String((numbers.length ? Math.max(...numbers) : 0) + 1).padStart(2, '0'), title: '', description: '', status: 'draft', accessMode: 'all', logins: new Set(), pdfFile: null, pptxFile: null, presentation: null, clearPresentation: false, lectureFile: null, lecture: null, lectureNote: '', clearLecture: false, workbookFile: null, workbook: null, clearWorkbook: false, materials: [], pages: [], videos: [], sectionOrder: SECTION_KEYS.slice() };
 }
 function fromLesson(lesson) {
   const draft = blank();
@@ -295,6 +295,7 @@ function fromLesson(lesson) {
   const pptxExtra = (lesson.materials || []).find(item => String(item.download || '').endsWith('/presentation.pptx'));
   draft.pptxKept = pptxExtra || ((lesson.presentation?.download || '').endsWith('.pptx') ? lesson.presentation : null);
   if ((lesson.presentation?.download || '').endsWith('.pptx')) draft.presentation = lesson.presentation;
+  draft.sectionOrder = normalizeSectionOrder(lesson.sectionOrder);
   draft.pages = (lesson.pages || []).map(item => ({ title: item.title || '', resource: item, file: null }));
   draft.videos = (lesson.videos || []).map(item => ({ title: item.title || '', resource: item, file: null, posterFile: null, link: item.embedUrl || '' }));
   return draft;
@@ -313,7 +314,7 @@ function renderEditor() {
   form.append(field('Название', 'title', draft.title, 'Например: Контент-план на месяц'));
   form.append(area('Коротко, о чём урок', 'description', draft.description, 'Одно-два предложения. Ученик увидит их под названием.'));
   form.append(accessBlock(draft));
-  form.append(presentationBlock(draft), lectureBlock(draft), workbookBlock(draft), videosBlock(draft), pagesBlock(draft), materialsBlock(draft));
+  form.append(sectionsBlock(draft));
   const status = node('p', 'status'); status.id = 'save-status';
   const bar = node('div', 'progress'); bar.hidden = true; bar.append(node('span')); bar.id = 'save-bar';
   const error = node('div', 'error'); error.hidden = true; error.id = 'save-error';
@@ -359,6 +360,100 @@ function accessBlock(draft) {
   card.append(choices, people); return card;
 }
 function formAccess() { return screen.querySelector('input[name=access]:checked')?.value || 'all'; }
+const SECTION_KEYS = ['presentation', 'lecture', 'videos', 'pages', 'materials', 'workbook'];
+const SECTION_NAMES = { presentation: 'Презентация', lecture: 'Лекция', videos: 'Видео', pages: 'HTML-страница', materials: 'Дополнительные материалы', workbook: 'Методичка' };
+function normalizeSectionOrder(value) {
+  const list = Array.isArray(value) ? value.filter((key, i) => SECTION_KEYS.includes(key) && value.indexOf(key) === i) : [];
+  return [...list, ...SECTION_KEYS.filter(key => !list.includes(key))];
+}
+function isDefaultSectionOrder(order) { return order.every((key, i) => key === SECTION_KEYS[i]); }
+const SECTION_BUILDERS = { presentation: presentationBlock, lecture: lectureBlock, videos: videosBlock, pages: pagesBlock, materials: materialsBlock, workbook: workbookBlock };
+function sectionsBlock(draft) {
+  draft.sectionOrder = normalizeSectionOrder(draft.sectionOrder);
+  const wrap = node('div', 'section-blocks'); wrap.id = 'section-blocks';
+  const cards = {};
+  for (const key of SECTION_KEYS) { const card = SECTION_BUILDERS[key](draft); card.dataset.section = key; card.classList.add('section-card'); cards[key] = card; }
+  const paint = () => {
+    draft.sectionOrder.forEach((key, index) => {
+      const card = cards[key]; wrap.append(card);
+      let bar = card.querySelector(':scope > .section-move');
+      if (!bar) {
+        bar = node('div', 'actions section-move');
+        const handle = node('button', 'drag-handle', '⠿'); handle.type = 'button'; handle.title = 'Перетащить раздел';
+        handle.setAttribute('aria-label', `Перетащить раздел «${SECTION_NAMES[key]}»`);
+        const up = moveButton(-1), down = moveButton(1);
+        up.classList.add('section-up'); down.classList.add('section-down');
+        up.setAttribute('aria-label', `Раздел «${SECTION_NAMES[key]}» выше`); down.setAttribute('aria-label', `Раздел «${SECTION_NAMES[key]}» ниже`);
+        up.addEventListener('click', () => moveSection(draft, key, -1, paint));
+        down.addEventListener('click', () => moveSection(draft, key, 1, paint));
+        bar.append(handle, up, down); card.prepend(bar);
+        bindSectionDrag(wrap, card, handle, draft, paint);
+      }
+      bar.querySelector('.section-up').disabled = index === 0;
+      bar.querySelector('.section-down').disabled = index === SECTION_KEYS.length - 1;
+    });
+  };
+  paint();
+  return wrap;
+}
+function moveSection(draft, key, delta, paint) {
+  const from = draft.sectionOrder.indexOf(key), to = from + delta;
+  if (from < 0 || to < 0 || to >= draft.sectionOrder.length) return;
+  const previous = draft.sectionOrder.slice();
+  draft.sectionOrder.splice(from, 1); draft.sectionOrder.splice(to, 0, key);
+  paint(); say(`Раздел «${SECTION_NAMES[key]}» перемещён`);
+  document.querySelector(`[data-section="${key}"] .section-${delta < 0 ? 'up' : 'down'}`)?.focus();
+  void persistSectionOrder(draft, previous, paint);
+}
+function bindSectionDrag(wrap, card, handle, draft, paint) {
+  handle.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const pointer = event.pointerId, startY = event.clientY, origin = draft.sectionOrder.slice();
+    let active = false;
+    const onMove = ev => {
+      if (ev.pointerId !== pointer) return;
+      if (!active) { if (Math.abs(ev.clientY - startY) < 8) return; active = true; card.classList.add('is-dragging'); }
+      ev.preventDefault();
+      const rows = [...wrap.querySelectorAll(':scope > .section-card')], current = rows.indexOf(card);
+      let target = rows.length - 1;
+      for (let i = 0; i < rows.length; i++) { const box = rows[i].getBoundingClientRect(); if (ev.clientY < box.top + box.height / 2) { target = i; break; } }
+      if (target === current) return;
+      if (target > current) rows[target].after(card); else rows[target].before(card);
+      draft.sectionOrder = [...wrap.querySelectorAll(':scope > .section-card')].map(el => el.dataset.section);
+      const edge = ev.clientY < 60 ? -12 : ev.clientY > innerHeight - 60 ? 12 : 0; if (edge) scrollBy(0, edge);
+    };
+    const finish = ev => {
+      if (ev.pointerId !== pointer) return;
+      removeEventListener('pointermove', onMove); removeEventListener('pointerup', finish); removeEventListener('pointercancel', finish);
+      card.classList.remove('is-dragging');
+      if (!active || origin.every((key, i) => key === draft.sectionOrder[i])) return;
+      paint(); say('Порядок разделов изменён');
+      void persistSectionOrder(draft, origin, paint);
+    };
+    try { handle.setPointerCapture(pointer); } catch {}
+    addEventListener('pointermove', onMove); addEventListener('pointerup', finish); addEventListener('pointercancel', finish);
+  });
+}
+let sectionOrderChain = Promise.resolve();
+function persistSectionOrder(draft, previous, paint) {
+  if (!draft.id) return Promise.resolve();
+  const intended = draft.sectionOrder.slice(), same = (a, b) => a.every((key, i) => key === b[i]);
+  sectionOrderChain = sectionOrderChain.then(async () => {
+    if (!same(draft.sectionOrder, intended)) return;
+    try {
+      const saved = await api(`/api/admin/lessons/${draft.id}`, { method: 'PUT', body: { sectionOrder: isDefaultSectionOrder(intended) ? null : intended, revision: state.revision } });
+      state.revision = saved.revision;
+      const cached = state.lessons.find(lesson => lesson.id === draft.id); if (cached) cached.sectionOrder = saved.lesson?.sectionOrder;
+      showError('');
+    } catch (error) {
+      if (error.status === 409) { try { const fresh = await api(`/api/admin/lessons/${draft.id}`); state.revision = fresh.revision; } catch {} }
+      if (!same(draft.sectionOrder, intended)) return;
+      draft.sectionOrder = previous; paint(); showError(error.message);
+    }
+  });
+  return sectionOrderChain;
+}
 function fileBlock(title, hint, body) { const card = node('section', 'card'); card.append(node('h3', '', title), node('p', 'hint', hint)); card.append(body); return card; }
 function filePicker(label, accept, onPick) {
   const row = node('div', 'file-row');
@@ -662,6 +757,7 @@ async function save(status) {
     if (workbook !== undefined) patch.workbook = workbook;
     patch.videos = await buildVideos(draft);
     patch.pages = await buildPages(draft);
+    patch.sectionOrder = isDefaultSectionOrder(draft.sectionOrder) ? null : draft.sectionOrder.slice();
     showStatus('Сохраняем урок…', 1);
     const saved = await api(`/api/admin/lessons/${draft.id}`, { method: 'PUT', body: patch });
     state.revision = saved.revision;

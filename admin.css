@@ -311,3 +311,6 @@ body.menu-open{overflow:hidden}
   .user-table tbody td.lessons-cell{display:none}
   .user-table tbody .kebab-btn{width:36px;height:36px;border-radius:10px}
 }
+
+.section-card{position:relative}.section-move{position:absolute;top:12px;right:12px;display:flex;gap:6px;margin:0}.section-card>h3{padding-right:156px}.section-card.is-dragging{opacity:.75;outline:2px dashed #6599d9;z-index:2}.section-card.is-dragging .drag-handle{cursor:grabbing}
+@media (max-width:520px){.section-move{position:static;justify-content:flex-end;margin-bottom:6px}.section-card>h3{padding-right:0}}
