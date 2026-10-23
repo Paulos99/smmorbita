@@ -1,4 +1,5 @@
-import { API, getToken, clearToken } from './auth.js';
+import { API, getToken, clearToken } from './auth.js?v=20261023c';
+import { showNews } from './news.js?v=20261023c';
 import { docxToSections, linesFromSections } from './docx.js';
 import { pdfToWebpBlobs, textToWebpBlobs } from './previews.js';
 import { packLessonHtml } from './htmlpack.js';
@@ -165,6 +166,7 @@ async function boot() {
     const user = session.user;
     state.me = String(user.login || '').toLowerCase();
     $('#who').textContent = user.name || '';
+    setTimeout(() => showNews(user), 600);
     if (user.role !== 'teacher') { denied(user.roles?.includes('teacher') ? 'Сейчас включена роль ученика. В архиве переключитесь на «Преподаватель» и откройте кабинет снова.' : 'Этот вход — ученический. Кабинет открывается только преподавателю.'); return; }
     const [catalog, accounts, resets] = await Promise.all([
       api('/api/admin/lessons'),

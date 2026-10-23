@@ -1,5 +1,5 @@
-import {API,getToken,setToken} from './auth.js';
-import {registerShell,armInstallHint} from './install.js';
+import {API,getToken,setToken} from './auth.js?v=20261023c';
+import {registerShell,armInstallHint} from './install.js?v=20261023c';
 registerShell();
 if(getToken())location.replace('./');
 else armInstallHint();

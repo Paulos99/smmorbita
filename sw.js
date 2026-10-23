@@ -1,4 +1,4 @@
-const CACHE = 'smm-shell-v9';
+const CACHE = 'smm-shell-v10';
 const SHELL = [
   './',
   './index.html',
@@ -6,6 +6,7 @@ const SHELL = [
   './404.html',
   './admin.html',
   './app.js',
+  './news.js',
   './auth.js',
   './install.js',
   './login.js',
