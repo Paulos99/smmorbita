@@ -1,5 +1,5 @@
-import { API, getToken, clearToken } from './auth.js?v=20261023i';
-import { showNews } from './news.js?v=20261023i';
+import { API, getToken, clearToken } from './auth.js?v=20261026a';
+import { showNews } from './news.js?v=20261026a';
 import { docxToSections, linesFromSections } from './docx.js';
 import { pdfToWebpBlobs, textToWebpBlobs } from './previews.js';
 import { packLessonHtml } from './htmlpack.js';
