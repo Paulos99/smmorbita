@@ -1,5 +1,5 @@
-import { API, getToken, clearToken } from './auth.js?v=20261122a';
-import { showNews } from './news.js?v=20261122a';
+import { API, getToken, clearToken } from './auth.js?v=20261122b';
+import { showNews } from './news.js?v=20261122b';
 import { docxToSections, linesFromSections } from './docx.js';
 import { pdfToWebpBlobs, textToWebpBlobs } from './previews.js';
 import { packLessonHtml } from './htmlpack.js';
@@ -242,9 +242,9 @@ function gameCard() {
   card.setAttribute('aria-labelledby', 'game-card-title');
   const art = node('img', 'game-art'); art.src = './assets/news/news-phone@2x.webp'; art.alt = ''; art.width = 128; art.height = 128; art.loading = 'lazy';
   const copy = node('div', 'game-copy');
-  const title = node('h2', '', 'Полигон для спецагентов'); title.id = 'game-card-title';
+  const title = node('h2', '', 'Штаб для спецагентов'); title.id = 'game-card-title';
   copy.append(node('div', 'eyebrow', 'РЕЖИМ ИГРЫ'), title,
-    node('p', 'lead', 'Мы открыли тестовый полигон: тут спецагенты учатся СММ в формате игры. Его нужно обследовать. Пройдите пару заданий и расскажите, что понравилось, а что нет.'));
+    node('p', 'lead', 'Мы открыли тестовый Штаб: тут спецагенты учатся СММ в формате игры. Его нужно обследовать. Пройдите пару заданий и расскажите, что понравилось, а что нет.'));
   const play = node('button', 'primary game-play', 'Играть'); play.type = 'button';
   const hint = node('p', 'game-hint', 'Игра откроется в этой вкладке. Входить заново не нужно.');
   play.addEventListener('click', async () => {
