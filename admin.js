@@ -1,5 +1,5 @@
-import { API, getToken, clearToken } from './auth.js?v=20261109a';
-import { showNews } from './news.js?v=20261109a';
+import { API, getToken, clearToken } from './auth.js?v=20261122a';
+import { showNews } from './news.js?v=20261122a';
 import { docxToSections, linesFromSections } from './docx.js';
 import { pdfToWebpBlobs, textToWebpBlobs } from './previews.js';
 import { packLessonHtml } from './htmlpack.js';
@@ -227,6 +227,7 @@ function renderList() {
   copy.append(node('div', 'eyebrow', 'ШТАБ / УРОКИ'), node('h1', '', 'Уроки школы'), node('p', 'lead', 'Создайте урок, приложите файлы и опубликуйте, когда всё готово. Черновик видите только вы.'));
   const add = node('button', 'primary', 'Новый урок'); add.type = 'button'; add.addEventListener('click', () => openEditor(blank()));
   head.append(copy, add); screen.append(head);
+  screen.append(gameCard());
   if (state.notice) { const text = state.notice; state.notice = ''; showToast(text); }
   if (!state.lessons.length) {
     const empty = node('div', 'empty'); empty.append(node('h2', '', 'Пока нет уроков'), node('p', '', 'Нажмите «Новый урок», чтобы собрать первое досье.')); screen.append(empty); return;
@@ -234,6 +235,29 @@ function renderList() {
   const list = node('div', 'list');
   state.lessons.forEach((lesson, index) => list.append(row(lesson, index)));
   screen.append(list);
+}
+// «Режим игры»: the school signs a one-time 60 s pass, the game reads it from the URL fragment (never sent to a server) and drops it at once.
+function gameCard() {
+  const card = node('section', 'game-card');
+  card.setAttribute('aria-labelledby', 'game-card-title');
+  const art = node('img', 'game-art'); art.src = './assets/news/news-phone@2x.webp'; art.alt = ''; art.width = 128; art.height = 128; art.loading = 'lazy';
+  const copy = node('div', 'game-copy');
+  const title = node('h2', '', 'Полигон для спецагентов'); title.id = 'game-card-title';
+  copy.append(node('div', 'eyebrow', 'РЕЖИМ ИГРЫ'), title,
+    node('p', 'lead', 'Мы открыли тестовый полигон: тут спецагенты учатся СММ в формате игры. Его нужно обследовать. Пройдите пару заданий и расскажите, что понравилось, а что нет.'));
+  const play = node('button', 'primary game-play', 'Играть'); play.type = 'button';
+  const hint = node('p', 'game-hint', 'Игра откроется в этой вкладке. Входить заново не нужно.');
+  play.addEventListener('click', async () => {
+    play.disabled = true; play.textContent = 'Открываем…';
+    try {
+      const pass = await api('/api/game-handoff', { method: 'POST', body: {} });
+      if (!/^https:\/\/paulos99\.github\.io\/smm-stand\/game\/$/.test(pass.url) || !/^[\w-]+\.[\w-]+$/.test(pass.token)) throw new Error('Не удалось открыть игру. Попробуйте ещё раз.');
+      location.assign(`${pass.url}#pass=${pass.token}`);
+    } catch (error) { showToast(error.message || 'Не удалось открыть игру. Попробуйте ещё раз.'); play.disabled = false; play.textContent = 'Играть'; }
+  });
+  copy.append(play, hint);
+  card.append(copy, art);
+  return card;
 }
 function moveButton(direction) {
   const up = direction < 0;
